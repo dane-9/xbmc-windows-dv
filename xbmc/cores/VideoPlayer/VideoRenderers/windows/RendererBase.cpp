@@ -259,7 +259,9 @@ bool CRendererBase::Configure(const VideoPicture& picture, float fps, unsigned o
 
     const bool streamIsHDR = IsHdrStream(picture, m_canRenderDolbyVision);
 
-    if (!IsDolbyVisionOutputCandidate() && streamIsHDR != DX::Windowing()->IsHDROutput())
+    // Dolby Vision output needs Windows HDR off.
+    const bool wantsHdr = streamIsHDR && !IsDolbyVisionOutputCandidate();
+    if (wantsHdr != DX::Windowing()->IsHDROutput())
       DX::Windowing()->ToggleHDR();
   }
 
