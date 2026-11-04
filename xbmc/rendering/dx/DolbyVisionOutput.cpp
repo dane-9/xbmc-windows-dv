@@ -19,6 +19,7 @@
 #include "settings/DisplaySettings.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
+#include "utils/StringUtils.h"
 #include "utils/log.h"
 #include "windowing/GraphicContext.h"
 #include "windowing/Resolution.h"
@@ -517,15 +518,44 @@ struct EntryState
   bool retainedReplay{};
 };
 
+// The entry checks run for every stream and capability query; a refusal is
+// logged only when its reason differs from the previous one since the last
+// passed check.
+std::mutex refusalLock;
+std::string lastRefusal;
+
+void LogRefusal(int level, const std::string& reason)
+{
+  std::unique_lock guard(refusalLock);
+  if (reason == lastRefusal)
+    return;
+  lastRefusal = reason;
+  CLog::Log(level, "Dolby Vision output: {}", reason);
+}
+
+void ClearRefusal()
+{
+  std::unique_lock guard(refusalLock);
+  lastRefusal.clear();
+}
+
 // The read-only conditions for entering Dolby Vision output for a width x height
 // stream at fps. On success NVAPI stays initialized for the caller.
 std::optional<EntryState> CheckEntry(const std::wstring& gdiName, int width, int height, double fps)
 {
-  if (!DX::CDolbyVisionOutput::IsAllowedBySettings() ||
-      CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(
-          CSettings::SETTING_VIDEOPLAYER_ADJUSTREFRESHRATE) == ADJUST_REFRESHRATE_OFF ||
-      fps <= 0.0)
+  if (!DX::CDolbyVisionOutput::IsAllowedBySettings())
     return {};
+  if (CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(
+          CSettings::SETTING_VIDEOPLAYER_ADJUSTREFRESHRATE) == ADJUST_REFRESHRATE_OFF)
+  {
+    LogRefusal(LOGWARNING, "requires \"Adjust display refresh rate\".");
+    return {};
+  }
+  if (fps <= 0.0)
+  {
+    LogRefusal(LOGDEBUG, "the stream's frame rate is not known yet.");
+    return {};
+  }
 
   EntryState entry;
   const DX::CDolbyVisionOutput::OutputMode mode =
@@ -533,10 +563,10 @@ std::optional<EntryState> CheckEntry(const std::wstring& gdiName, int width, int
   entry.format = FormatFor(mode.width, mode.height, mode.refresh);
   if (!entry.format)
   {
-    CLog::Log(LOGWARNING,
-              "Dolby Vision output: no supported display mode for a {}x{} stream ({}x{} {:.3f} Hz "
-              "selected).",
-              width, height, mode.width, mode.height, mode.refresh);
+    LogRefusal(LOGWARNING,
+               StringUtils::Format("no supported display mode for a {}x{} stream ({}x{} {:.3f} Hz "
+                                   "selected).",
+                                   width, height, mode.width, mode.height, mode.refresh));
     return {};
   }
 
@@ -544,7 +574,7 @@ std::optional<EntryState> CheckEntry(const std::wstring& gdiName, int width, int
   const ActiveDisplay current = target ? GetActiveDisplay(*target) : ActiveDisplay{};
   if (!current.hdmi)
   {
-    CLog::Log(LOGWARNING, "Dolby Vision output: requires an HDMI connection.");
+    LogRefusal(LOGWARNING, "requires an HDMI connection.");
     return {};
   }
   entry.target = *target;
@@ -557,6 +587,8 @@ std::optional<EntryState> CheckEntry(const std::wstring& gdiName, int width, int
   const std::optional<NV_TIMING> timing = GetTiming(entry.displayId, NV_TIMING_OVERRIDE_CURRENT);
   if (!hdr || !timing)
   {
+    LogRefusal(LOGWARNING, StringUtils::Format("NVAPI could not read the display's {}.",
+                                               hdr ? "timing" : "HDR state"));
     NvAPI_Unload();
     return {};
   }
@@ -573,10 +605,11 @@ std::optional<EntryState> CheckEntry(const std::wstring& gdiName, int width, int
   if ((entryMode != NV_HDR_MODE_OFF && !entry.retainedReplay) ||
       CWIN32Util::GetWindowsHDRStatus() != HDR_STATUS::HDR_OFF)
   {
-    CLog::Log(LOGWARNING, "Dolby Vision output: requires an SDR desktop with Windows HDR off.");
+    LogRefusal(LOGWARNING, "requires an SDR desktop with Windows HDR off.");
     NvAPI_Unload();
     return {};
   }
+  ClearRefusal();
   return entry;
 }
 #endif
