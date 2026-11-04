@@ -85,10 +85,12 @@ std::size_t PacketCount(std::size_t metadataBytes);
 /*!
  * \brief Splits serialized metadata into CRC-protected transport packets.
  *
+ * \param metadataId 0..15, changed by the caller whenever the metadata changes
  * \return the packets, or empty if metadata is empty or longer than
  *         MAX_METADATA_BYTES
  */
-std::optional<std::vector<DvPacket>> Packetize(const std::vector<std::uint8_t>& metadata);
+std::optional<std::vector<DvPacket>> Packetize(const std::vector<std::uint8_t>& metadata,
+                                               unsigned metadataId = 0);
 
 /*!
  * \brief CRC-32/MPEG-2 of data.
