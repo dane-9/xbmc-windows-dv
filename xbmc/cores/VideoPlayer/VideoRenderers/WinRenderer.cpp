@@ -79,6 +79,17 @@ CRendererBase* CWinRenderer::SelectRenderer(const VideoPicture& picture)
   for (auto& details : RenderMethodDetails)
     details.weights(weights, picture);
 
+#if defined(TARGET_WINDOWS_DESKTOP)
+  // Dolby Vision output has its own setting and works only in the pixel
+  // shader renderer.
+  if (iRequestedMethod != RENDER_METHOD_D3D_PS && weights[RENDER_PS] &&
+      CRendererShaders::WantsDolbyVisionOutput(picture))
+  {
+    CLog::LogF(LOGINFO, "using Pixel Shaders for Dolby Vision output");
+    iRequestedMethod = RENDER_METHOD_D3D_PS;
+  }
+#endif
+
   RenderMethod method;
   switch (iRequestedMethod)
   {
