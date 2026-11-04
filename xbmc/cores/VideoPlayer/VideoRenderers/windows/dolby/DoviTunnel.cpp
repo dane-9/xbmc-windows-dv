@@ -164,6 +164,8 @@ struct CDoviTunnel::Impl
   DvTables tables;
   DvReshapeLut lut;
   std::vector<DvPacket> packets;
+  std::vector<std::uint8_t> previousMetadata;
+  unsigned metadataId = 0;
 
   Microsoft::WRL::ComPtr<ID3D11Texture2D> lastFrame;
   std::size_t lastPacketCount = 0;
@@ -300,7 +302,12 @@ bool CDoviTunnel::Render(const CRenderBuffer& buffer,
   // canvas as active.
   if (!metadata || !ClearLevel5Payloads(metadata->bytes))
     return d.Skip(DvSkip::TRANSPORT_REJECTED);
-  std::optional<std::vector<DvPacket>> packets = Packetize(metadata->bytes);
+  // As other Dolby Vision sources do, change the metadata ID with the metadata;
+  // a display may take changed metadata only with a new ID.
+  if (!d.previousMetadata.empty() && metadata->bytes != d.previousMetadata)
+    d.metadataId = (d.metadataId + 1) & 15;
+  d.previousMetadata = metadata->bytes;
+  std::optional<std::vector<DvPacket>> packets = Packetize(metadata->bytes, d.metadataId);
   if (!packets)
     return d.Skip(DvSkip::PACKETIZATION_FAILED);
   d.packets = std::move(*packets);

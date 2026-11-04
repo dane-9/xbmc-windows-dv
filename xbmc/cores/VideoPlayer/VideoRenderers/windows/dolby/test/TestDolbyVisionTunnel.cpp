@@ -139,6 +139,11 @@ unsigned U16(const std::vector<std::uint8_t>& v, std::size_t at)
   return (v[at] << 8) | v[at + 1];
 }
 
+std::uint32_t U32(const std::vector<std::uint8_t>& v, std::size_t at)
+{
+  return (std::uint32_t{v[at]} << 24) | (v[at + 1] << 16) | (v[at + 2] << 8) | v[at + 3];
+}
+
 double CatmullRom(double x)
 {
   x = std::abs(x);
@@ -181,6 +186,24 @@ TEST(TestDolbyVisionTunnel, SerializesTheBaseBlock)
   EXPECT_EQ(v[70], 0); // no extension blocks
   EXPECT_EQ(metadata->colour.ycc[5], -5348);
   EXPECT_EQ(metadata->colour.lms[8], 15962);
+}
+
+TEST(TestDolbyVisionTunnel, SendsBlocksInRpuOrder)
+{
+  // FFmpeg lists the static blocks (10, 254) first
+  CBlobBuilder builder;
+  builder.blocks = {Block(10), Block(254), Block(1), Block(2), Block(3)};
+  const std::vector<std::uint8_t> blob = builder.Build();
+  const std::optional<DvDisplayMetadata> metadata =
+      SerializeDisplayMetadata(blob.data(), blob.size());
+  ASSERT_TRUE(metadata);
+
+  const std::vector<std::uint8_t>& v = metadata->bytes;
+  EXPECT_EQ(v[70], 5);
+  std::vector<unsigned> levels;
+  for (std::size_t at = 71; at + 5 <= v.size(); at += 5 + U32(v, at))
+    levels.push_back(v[at + 4]);
+  EXPECT_EQ(levels, (std::vector<unsigned>{1, 2, 3, 10, 254}));
 }
 
 TEST(TestDolbyVisionTunnel, RejectsMalformedMetadata)
@@ -261,6 +284,18 @@ TEST(TestDolbyVisionTunnel, PacketizesMetadata)
   }
   EXPECT_FALSE(Packetize({}));
   EXPECT_FALSE(Packetize(std::vector<std::uint8_t>(MAX_METADATA_BYTES + 1)));
+
+  // every packet carries the metadata ID in both nibbles of byte 1
+  const std::optional<std::vector<DvPacket>> withId =
+      Packetize(std::vector<std::uint8_t>(300, 1), 9);
+  ASSERT_TRUE(withId);
+  EXPECT_EQ(withId->size(), 3u);
+  for (const DvPacket& packet : *withId)
+  {
+    EXPECT_EQ(packet[1], 0x99);
+    EXPECT_EQ(Crc32Mpeg2(packet.data(), PACKET_BYTES), 0u);
+  }
+  EXPECT_FALSE(Packetize(std::vector<std::uint8_t>(16, 1), 16));
 }
 
 TEST(TestDolbyVisionTunnel, AcceptsSupportedProfiles)

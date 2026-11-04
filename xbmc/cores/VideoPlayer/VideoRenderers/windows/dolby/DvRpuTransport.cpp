@@ -256,18 +256,31 @@ std::optional<DvDisplayMetadata> SerializeDisplayMetadata(const void* blobData,
     return {};
   out.colour = *colourParams;
 
-  unsigned written = 0;
-  std::vector<std::uint8_t> payload;
+  std::vector<AVDOVIDmData> blocks;
   for (int i = 0; i < count; ++i)
   {
     const std::optional<AVDOVIDmData> block =
         blob.Read<AVDOVIDmData>(root.ext_block_offset + root.ext_block_size * i);
     if (!block)
       return {};
-    const AVDOVIDmData& dm = *block;
-    if (dm.level == 6)
-      continue;
+    if (block->level != 6)
+      blocks.push_back(*block);
+  }
+  // FFmpeg lists the static blocks (levels 10 and 254 here) first. Send the
+  // RPU's order instead: content mapping v2.9 levels, then v4.0 levels.
+  auto rank = [](const AVDOVIDmData& dm)
+  {
+    const bool cm40 = dm.level == 3 || (dm.level >= 8 && dm.level <= 11) || dm.level == 254;
+    return dm.level + (cm40 ? 256 : 0);
+  };
+  std::stable_sort(blocks.begin(), blocks.end(),
+                   [&rank](const AVDOVIDmData& a, const AVDOVIDmData& b)
+                   { return rank(a) < rank(b); });
 
+  unsigned written = 0;
+  std::vector<std::uint8_t> payload;
+  for (const AVDOVIDmData& dm : blocks)
+  {
     payload.clear();
     if (!BuildPayload(dm, payload))
       return {};
@@ -316,9 +329,10 @@ std::size_t PacketCount(std::size_t metadataBytes)
   return 1 + (metadataBytes - 119 + 120) / 121;
 }
 
-std::optional<std::vector<DvPacket>> Packetize(const std::vector<std::uint8_t>& metadata)
+std::optional<std::vector<DvPacket>> Packetize(const std::vector<std::uint8_t>& metadata,
+                                               unsigned metadataId)
 {
-  if (metadata.empty() || metadata.size() > MAX_METADATA_BYTES)
+  if (metadata.empty() || metadata.size() > MAX_METADATA_BYTES || metadataId > 15)
     return {};
 
   const std::size_t n = PacketCount(metadata.size());
@@ -336,6 +350,7 @@ std::optional<std::vector<DvPacket>> Packetize(const std::vector<std::uint8_t>& 
       p[0] = 0xC0;
     else
       p[0] = 0x80;
+    p[1] = static_cast<std::uint8_t>((metadataId << 4) | metadataId);
 
     std::size_t start = 3;
     if (k == 0)
