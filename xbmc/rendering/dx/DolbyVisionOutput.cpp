@@ -36,6 +36,7 @@
 
 #include <nvapi.h>
 #include <windows.h>
+#include <shellapi.h>
 #include <wrl/client.h>
 #endif
 
@@ -256,6 +257,53 @@ NvAPI_Status SetHdrStatus(NvU32 displayId, NV_HDR_COLOR_DATA hdr)
   return NvAPI_Disp_HdrColorControl(displayId, &hdr);
 }
 
+constexpr wchar_t EXIT_HELPER_ARGUMENT[] = L"--dv-exit-helper";
+constexpr wchar_t EXIT_HELPER_PARTNER[] = L"partner";
+
+// Starts this executable as an exit helper and waits for it to exit.
+bool RunExitHelperProcess(NvU32 displayId, bool partner)
+{
+  wchar_t path[MAX_PATH]{};
+  if (GetModuleFileNameW(nullptr, path, MAX_PATH) == 0)
+    return false;
+  std::wstring commandLine = L"\"" + std::wstring(path) + L"\" " + EXIT_HELPER_ARGUMENT + L" " +
+                             std::to_wstring(displayId);
+  if (partner)
+    commandLine += std::wstring(L" ") + EXIT_HELPER_PARTNER;
+  STARTUPINFOW startup{};
+  startup.cb = sizeof(startup);
+  PROCESS_INFORMATION process{};
+  if (!CreateProcessW(path, commandLine.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr,
+                      nullptr, &startup, &process))
+    return false;
+  CloseHandle(process.hThread);
+  const bool exited = WaitForSingleObject(process.hProcess, 5000) == WAIT_OBJECT_0;
+  DWORD exitCode = 1;
+  if (exited)
+    GetExitCodeProcess(process.hProcess, &exitCode);
+  CloseHandle(process.hProcess);
+  return exited && exitCode == 0;
+}
+
+// The driver ignores an HDR mode OFF request on current Windows, so its Dolby
+// Vision output state would stay. Its process-exit cleanup ends that state
+// when two processes have set an HDR mode and the later one exits first.
+bool EndDriverDolbyVision(NvU32 displayId)
+{
+  if (RunExitHelperProcess(displayId, false))
+  {
+    for (unsigned attempt = 0; attempt < 10; ++attempt)
+    {
+      const std::optional<NV_HDR_COLOR_DATA> hdr = GetHdr(displayId);
+      if (hdr && hdr->hdrMode == NV_HDR_MODE_OFF)
+        return true;
+      Sleep(50);
+    }
+  }
+  CLog::Log(LOGWARNING, "Dolby Vision output: the driver did not end its Dolby Vision state.");
+  return false;
+}
+
 bool ReportedSdr(NvU32 displayId)
 {
   NV_DISPLAY_OUTPUT_MODE mode{};
@@ -417,9 +465,9 @@ std::optional<EntryState> CheckEntry(const std::wstring& gdiName, int width, int
   entry.timing = *timing;
 
   const NV_HDR_MODE entryMode = entry.hdr.hdrMode;
-  // The driver keeps reporting mode 7 after a completed exit. That is accepted on
-  // an SDR desktop whose current timing is an untagged movie timing; it can still
-  // be the desktop rate while Kodi switches to the stream's.
+  // The driver keeps reporting mode 7 when ending its Dolby Vision state failed.
+  // That is accepted on an SDR desktop whose current timing is an untagged movie
+  // timing; it can still be the desktop rate while Kodi switches to the stream's.
   entry.retainedReplay = entryMode == NV_HDR_MODE_DOLBY_VISION && ReportedSdr(entry.displayId) &&
                          current.format && IsMovieTiming(entry.timing, *current.format) &&
                          (entry.timing.etc.status & 0xffff) != DOLBY_VISION_TIMING_STATUS;
@@ -613,20 +661,54 @@ void DX::CDolbyVisionOutput::Restore()
   if (!m_impl->initialized)
     return;
 
-  // Reverting the HDMI_VIC timing stops the Dolby Vision InfoFrame.
-  if (m_impl->hdmiVicTiming)
-    RevertHdmiVicTiming(m_impl->displayId);
-  m_impl->hdmiVicTiming = false;
   if (m_impl->active)
   {
     const NvAPI_Status off = SetHdrStatus(m_impl->displayId, m_impl->originalHdr);
     if (off != NVAPI_OK)
       CLog::Log(LOGERROR, "Dolby Vision output: restoring the HDR mode failed ({}).",
                 static_cast<int>(off));
+    const auto start = std::chrono::steady_clock::now();
+    if (EndDriverDolbyVision(m_impl->displayId))
+      CLog::Log(LOGINFO, "Dolby Vision output: the driver ended its Dolby Vision state ({} ms).",
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now() - start)
+                    .count());
     m_impl->active = false;
   }
+  // Reverting the HDMI_VIC timing stops the Dolby Vision InfoFrame.
+  if (m_impl->hdmiVicTiming)
+    RevertHdmiVicTiming(m_impl->displayId);
+  m_impl->hdmiVicTiming = false;
   NvAPI_Unload();
   m_impl->initialized = false;
+#endif
+}
+
+std::optional<int> DX::CDolbyVisionOutput::RunExitHelper()
+{
+#ifdef HAVE_NVAPI
+  int argc = 0;
+  LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+  if (!argv)
+    return {};
+  const bool helper = argc >= 3 && wcscmp(argv[1], EXIT_HELPER_ARGUMENT) == 0;
+  const NvU32 displayId = helper ? static_cast<NvU32>(wcstoul(argv[2], nullptr, 10)) : 0;
+  const bool partner = helper && argc >= 4 && wcscmp(argv[3], EXIT_HELPER_PARTNER) == 0;
+  LocalFree(argv);
+  if (!helper)
+    return {};
+
+  if (NvAPI_Initialize() != NVAPI_OK)
+    return 1;
+  NV_HDR_COLOR_DATA hdr{};
+  hdr.hdrMode = NV_HDR_MODE_SDR;
+  bool ok = SetHdrStatus(displayId, hdr) == NVAPI_OK;
+  if (ok && !partner)
+    ok = RunExitHelperProcess(displayId, true);
+  NvAPI_Unload();
+  return ok ? 0 : 1;
+#else
+  return {};
 #endif
 }
 
@@ -635,26 +717,28 @@ bool DX::CDolbyVisionOutput::IsActive() const
   return m_impl->active;
 }
 
-void DX::CDolbyVisionOutput::RemoveLeftoverTiming(const std::wstring& gdiName)
+void DX::CDolbyVisionOutput::RemoveLeftoverOutput(const std::wstring& gdiName)
 {
 #ifdef HAVE_NVAPI
-  // A Kodi that ended during Dolby Vision playback leaves the tagged trial timing.
+  // A Kodi that ended during Dolby Vision playback leaves the driver's Dolby
+  // Vision state and the tagged trial timing.
   const std::optional<NvU32> display = OpenDisplay(gdiName, false);
   if (!display)
     return;
   const NvU32 displayId = *display;
+  const std::optional<NV_HDR_COLOR_DATA> hdr = GetHdr(displayId);
+  if (hdr && hdr->hdrMode == NV_HDR_MODE_DOLBY_VISION)
+  {
+    CLog::Log(LOGWARNING, "Dolby Vision output: ending a Dolby Vision state left by a previous "
+                          "session.");
+    EndDriverDolbyVision(displayId);
+  }
   const std::optional<NV_TIMING> timing = GetTiming(displayId, NV_TIMING_OVERRIDE_CURRENT);
   if (timing && (timing->etc.status & 0xffff) == DOLBY_VISION_TIMING_STATUS)
   {
     CLog::Log(LOGWARNING, "Dolby Vision output: removing a Dolby Vision timing left by a previous "
                           "session.");
     RevertHdmiVicTiming(displayId);
-    std::optional<NV_HDR_COLOR_DATA> hdr = GetHdr(displayId);
-    if (hdr && hdr->hdrMode == NV_HDR_MODE_DOLBY_VISION)
-    {
-      hdr->hdrMode = NV_HDR_MODE_OFF;
-      SetHdrStatus(displayId, *hdr);
-    }
   }
   NvAPI_Unload();
 #endif
@@ -674,7 +758,7 @@ void DX::CDolbyVisionOutput::SetWindow(HWND window)
   m_impl->window = window;
   const std::wstring display = DisplayName();
   if (!display.empty())
-    RemoveLeftoverTiming(display);
+    RemoveLeftoverOutput(display);
 }
 
 bool DX::CDolbyVisionOutput::CanEnable(int width, int height, double fps) const

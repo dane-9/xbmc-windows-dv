@@ -13,6 +13,7 @@
 #include "application/AppParams.h"
 #include "platform/Environment.h"
 #include "platform/xbmc.h"
+#include "rendering/dx/DolbyVisionOutput.h"
 #include "threads/Thread.h"
 #include "utils/CharsetConverter.h" // Required to initialize converters before usage
 #include "utils/Digest.h"
@@ -161,6 +162,9 @@ bool CheckAndSetProfileMutex(UserDirectoriesLocation loc, HANDLE& handle)
 //-----------------------------------------------------------------------------
 _Use_decl_annotations_ INT WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, INT)
 {
+  if (const std::optional<int> exitCode = DX::CDolbyVisionOutput::RunExitHelper())
+    return *exitCode;
+
   // parse command line parameters
   const auto params = ParseCommandLine();
 
