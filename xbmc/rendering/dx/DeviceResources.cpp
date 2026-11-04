@@ -1399,6 +1399,13 @@ HDR_STATUS DX::DeviceResources::ToggleHDR()
   // is equivalent to 1080p upscaled to 4K (TO DO: investigate root cause).
   const bool isXbox = (CSysInfo::GetWindowsDeviceFamily() == CSysInfo::Xbox);
 
+#ifdef TARGET_WINDOWS_DESKTOP
+  // Leave Dolby Vision before Windows HDR changes the display mode; the
+  // swapchain is recreated below.
+  if (m_dolbyVisionOutput.IsActive())
+    m_dolbyVisionOutput.Reset();
+#endif
+
   DX::Windowing()->SetTogglingHDR(true);
   DX::Windowing()->SetAlteringWindow(true);
 
