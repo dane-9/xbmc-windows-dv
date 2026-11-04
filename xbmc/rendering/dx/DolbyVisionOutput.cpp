@@ -134,35 +134,68 @@ struct ActiveDisplay
   bool hdmi{false};
 };
 
-// The output of Kodi's display, identified by its GDI source name.
-ActiveDisplay GetActiveDisplay(const std::wstring& gdiName)
+// A display output. GDI source names can move to another display when modes
+// change on a multi-monitor desktop; the adapter and target ID stay.
+struct DisplayTarget
 {
-  ActiveDisplay display;
+  LUID adapterId{};
+  UINT32 id{};
+};
+
+bool QueryActivePaths(std::vector<DISPLAYCONFIG_PATH_INFO>& paths,
+                      std::vector<DISPLAYCONFIG_MODE_INFO>& modes)
+{
   UINT32 pathCount = 0;
   UINT32 modeCount = 0;
-  LONG status = GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &pathCount, &modeCount);
-  if (status != ERROR_SUCCESS || pathCount == 0)
-    return display;
+  if (GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &pathCount, &modeCount) !=
+          ERROR_SUCCESS ||
+      pathCount == 0)
+    return false;
+  paths.resize(pathCount);
+  modes.resize(modeCount);
+  if (QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS, &pathCount, paths.data(), &modeCount,
+                         modes.data(), nullptr) != ERROR_SUCCESS)
+    return false;
+  paths.resize(pathCount);
+  modes.resize(modeCount);
+  return true;
+}
 
-  std::vector<DISPLAYCONFIG_PATH_INFO> paths(pathCount);
-  std::vector<DISPLAYCONFIG_MODE_INFO> modes(modeCount);
-  status = QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS, &pathCount, paths.data(), &modeCount,
-                              modes.data(), nullptr);
-  if (status != ERROR_SUCCESS)
-    return display;
-
-  for (UINT32 i = 0; i < pathCount; ++i)
+// The output currently showing the GDI source gdiName.
+std::optional<DisplayTarget> FindTarget(const std::wstring& gdiName)
+{
+  std::vector<DISPLAYCONFIG_PATH_INFO> paths;
+  std::vector<DISPLAYCONFIG_MODE_INFO> modes;
+  if (!QueryActivePaths(paths, modes))
+    return {};
+  for (const DISPLAYCONFIG_PATH_INFO& path : paths)
   {
-    const DISPLAYCONFIG_PATH_INFO& path = paths[i];
     DISPLAYCONFIG_SOURCE_DEVICE_NAME source{};
     source.header = {DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME, sizeof(source),
                      path.sourceInfo.adapterId, path.sourceInfo.id};
-    if (DisplayConfigGetDeviceInfo(&source.header) != ERROR_SUCCESS ||
-        _wcsicmp(source.viewGdiDeviceName, gdiName.c_str()) != 0)
+    if (DisplayConfigGetDeviceInfo(&source.header) == ERROR_SUCCESS &&
+        _wcsicmp(source.viewGdiDeviceName, gdiName.c_str()) == 0)
+      return DisplayTarget{path.targetInfo.adapterId, path.targetInfo.id};
+  }
+  return {};
+}
+
+ActiveDisplay GetActiveDisplay(const DisplayTarget& target)
+{
+  ActiveDisplay display;
+  std::vector<DISPLAYCONFIG_PATH_INFO> paths;
+  std::vector<DISPLAYCONFIG_MODE_INFO> modes;
+  if (!QueryActivePaths(paths, modes))
+    return display;
+  for (const DISPLAYCONFIG_PATH_INFO& path : paths)
+  {
+    if (path.targetInfo.id != target.id ||
+        path.targetInfo.adapterId.LowPart != target.adapterId.LowPart ||
+        path.targetInfo.adapterId.HighPart != target.adapterId.HighPart)
       continue;
 
     display.hdmi = path.targetInfo.outputTechnology == DISPLAYCONFIG_OUTPUT_TECHNOLOGY_HDMI;
-    if (path.targetInfo.modeInfoIdx >= modeCount ||
+    if (path.targetInfo.modeInfoIdx >= modes.size() ||
         modes[path.targetInfo.modeInfoIdx].infoType != DISPLAYCONFIG_MODE_INFO_TYPE_TARGET)
       return display;
 
@@ -176,6 +209,12 @@ ActiveDisplay GetActiveDisplay(const std::wstring& gdiName)
     return display;
   }
   return display;
+}
+
+ActiveDisplay GetActiveDisplay(const std::wstring& gdiName)
+{
+  const std::optional<DisplayTarget> target = FindTarget(gdiName);
+  return target ? GetActiveDisplay(*target) : ActiveDisplay{};
 }
 
 // The tunnel is TV-led ("standard") Dolby Vision. Version 0 and 1 Dolby VSVDBs
@@ -414,6 +453,7 @@ void RevertHdmiVicTiming(NvU32 displayId)
 struct EntryState
 {
   const HdmiVicFormat* format{};
+  DisplayTarget target{};
   NvU32 displayId{};
   NV_HDR_COLOR_DATA hdr{};
   NV_TIMING timing{};
@@ -443,12 +483,14 @@ std::optional<EntryState> CheckEntry(const std::wstring& gdiName, int width, int
     return {};
   }
 
-  const ActiveDisplay current = GetActiveDisplay(gdiName);
+  const std::optional<DisplayTarget> target = FindTarget(gdiName);
+  const ActiveDisplay current = target ? GetActiveDisplay(*target) : ActiveDisplay{};
   if (!current.hdmi)
   {
     CLog::Log(LOGWARNING, "Dolby Vision output: requires an HDMI connection.");
     return {};
   }
+  entry.target = *target;
 
   const std::optional<NvU32> displayId = OpenDisplay(gdiName);
   if (!displayId)
@@ -610,7 +652,7 @@ bool DX::CDolbyVisionOutput::Enable(const std::wstring& gdiName,
   {
     for (unsigned attempt = 0; attempt < 20 && !ready; ++attempt)
     {
-      const ActiveDisplay display = GetActiveDisplay(gdiName);
+      const ActiveDisplay display = GetActiveDisplay(entry->target);
       refresh = display.refresh;
       ready =
           display.format && std::abs(refresh - static_cast<double>(numerator) / denominator) < 0.01;
