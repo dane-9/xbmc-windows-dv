@@ -1161,10 +1161,12 @@ void DX::CDolbyVisionOutput::PresentFrame(DeviceResources& resources)
   ID3D11DeviceContext* context = resources.GetImmediateContext();
   resources.GetD3DContext()->OMSetRenderTargets(0, nullptr, nullptr);
   context->OMSetRenderTargets(0, nullptr, nullptr);
-  // Fullscreen video usually draws no GUI; compositing an empty layer would cost a
-  // full-frame copy and pass on every present.
+  // Fullscreen video usually draws no GUI or subtitles; compositing an empty layer
+  // would cost a full-frame copy and pass on every present.
   bool guiReady = false;
-  if (d.compositeGui && CServiceBroker::GetGUI()->GetWindowManager().HasVisibleControls())
+  if (d.compositeGui &&
+      (CServiceBroker::GetGUI()->GetWindowManager().HasVisibleControls() ||
+       CServiceBroker::GetAppComponents().GetComponent<CApplicationPlayer>()->HasVisibleOverlay()))
   {
     if (!d.guiFrame)
     {
