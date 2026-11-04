@@ -40,8 +40,8 @@ public:
   /*!
    * \brief Sets the window Kodi presents to.
    *
-   * Also ends the Dolby Vision state and reverts the timing that a previous
-   * Kodi session left on the window's display.
+   * Also ends the Dolby Vision state and reverts the timing and output colour
+   * that a previous Kodi session left on the window's display.
    */
   void SetWindow(HWND window);
 

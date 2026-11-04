@@ -12,6 +12,7 @@
 #include "ServiceBroker.h"
 #include "application/ApplicationComponents.h"
 #include "application/ApplicationPlayer.h"
+#include "filesystem/File.h"
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
 #include "messaging/ApplicationMessenger.h"
@@ -107,6 +108,8 @@ struct DX::CDolbyVisionOutput::Impl
 #ifdef HAVE_NVAPI
   NvU32 displayId{};
   NV_HDR_COLOR_DATA originalHdr{};
+  // The output colour to restore when entering changed it.
+  std::optional<NV_COLOR_DATA> originalColour;
   bool initialized{};
   bool hdmiVicTiming{};
 #endif
@@ -294,6 +297,60 @@ NvAPI_Status SetHdrStatus(NvU32 displayId, NV_HDR_COLOR_DATA hdr)
   hdr.version = NV_HDR_COLOR_DATA_VER;
   hdr.cmd = NV_HDR_CMD_SET;
   return NvAPI_Disp_HdrColorControl(displayId, &hdr);
+}
+
+std::optional<NV_COLOR_DATA> GetColour(NvU32 displayId)
+{
+  NV_COLOR_DATA colour{};
+  colour.version = NV_COLOR_DATA_VER;
+  colour.size = sizeof(colour);
+  colour.cmd = NV_COLOR_CMD_GET;
+  if (NvAPI_Disp_ColorControl(displayId, &colour) != NVAPI_OK)
+    return {};
+  return colour;
+}
+
+NvAPI_Status SetColour(NvU32 displayId, NV_COLOR_DATA colour)
+{
+  colour.version = NV_COLOR_DATA_VER;
+  colour.size = sizeof(colour);
+  colour.cmd = NV_COLOR_CMD_SET;
+  return NvAPI_Disp_ColorControl(displayId, &colour);
+}
+
+// The output colour is a persistent driver setting, so the one to restore is
+// also kept on disk for a session that ends during Dolby Vision output.
+constexpr char SAVED_COLOUR_FILE[] = "special://temp/dolbyvision-colour.bin";
+
+void SaveColour(const NV_COLOR_DATA& colour)
+{
+  XFILE::CFile file;
+  if (!file.OpenForWrite(SAVED_COLOUR_FILE, true) ||
+      file.Write(&colour, sizeof(colour)) != static_cast<ssize_t>(sizeof(colour)))
+    CLog::Log(LOGWARNING, "Dolby Vision output: saving the output colour failed.");
+}
+
+std::optional<NV_COLOR_DATA> LoadSavedColour()
+{
+  XFILE::CFile file;
+  NV_COLOR_DATA colour{};
+  if (!file.Open(SAVED_COLOUR_FILE) ||
+      file.Read(&colour, sizeof(colour)) != static_cast<ssize_t>(sizeof(colour)) ||
+      colour.version != NV_COLOR_DATA_VER)
+    return {};
+  return colour;
+}
+
+void RestoreColour(NvU32 displayId, const NV_COLOR_DATA& colour)
+{
+  const NvAPI_Status status = SetColour(displayId, colour);
+  if (status != NVAPI_OK)
+  {
+    CLog::Log(LOGWARNING, "Dolby Vision output: restoring the output colour failed ({}).",
+              static_cast<int>(status));
+    return;
+  }
+  XFILE::CFile::Delete(SAVED_COLOUR_FILE);
 }
 
 constexpr wchar_t EXIT_HELPER_ARGUMENT[] = L"--dv-exit-helper";
@@ -623,6 +680,32 @@ bool DX::CDolbyVisionOutput::Enable(const std::wstring& gdiName,
   if (entry->retainedReplay)
     m_impl->originalHdr.hdrMode = NV_HDR_MODE_OFF;
 
+  // A colour depth set in the NVIDIA Control Panel stays in force in Dolby
+  // Vision mode, and above 8 bpc the display misreads the 8-bit tunnel.
+  const std::optional<NV_COLOR_DATA> colour = GetColour(m_impl->displayId);
+  if (colour && colour->data.colorSelectionPolicy == NV_COLOR_SELECTION_POLICY_USER &&
+      (colour->data.bpc != NV_BPC_8 || colour->data.colorFormat != NV_COLOR_FORMAT_RGB))
+  {
+    NV_COLOR_DATA tunnel = *colour;
+    tunnel.data.colorFormat = NV_COLOR_FORMAT_RGB;
+    tunnel.data.dynamicRange = NV_DYNAMIC_RANGE_VESA;
+    tunnel.data.bpc = NV_BPC_8;
+    SaveColour(*colour);
+    const NvAPI_Status status = SetColour(m_impl->displayId, tunnel);
+    if (status != NVAPI_OK)
+    {
+      CLog::Log(LOGERROR, "Dolby Vision output: setting 8 bpc RGB output failed ({}).",
+                static_cast<int>(status));
+      XFILE::CFile::Delete(SAVED_COLOUR_FILE);
+      Restore();
+      return false;
+    }
+    m_impl->originalColour = *colour;
+    CLog::Log(LOGINFO,
+              "Dolby Vision output: switched the output colour (format {}, bpc {}) to 8 bpc RGB.",
+              static_cast<int>(colour->data.colorFormat), static_cast<int>(colour->data.bpc));
+  }
+
   m_impl->hdmiVicTiming = true;
   if (!ApplyHdmiVicTiming(m_impl->displayId, format))
   {
@@ -721,6 +804,9 @@ void DX::CDolbyVisionOutput::Restore()
   if (m_impl->hdmiVicTiming)
     RevertHdmiVicTiming(m_impl->displayId);
   m_impl->hdmiVicTiming = false;
+  if (m_impl->originalColour)
+    RestoreColour(m_impl->displayId, *m_impl->originalColour);
+  m_impl->originalColour.reset();
   NvAPI_Unload();
   m_impl->initialized = false;
 #endif
@@ -781,6 +867,12 @@ void DX::CDolbyVisionOutput::RemoveLeftoverOutput(const std::wstring& gdiName)
     CLog::Log(LOGWARNING, "Dolby Vision output: removing a Dolby Vision timing left by a previous "
                           "session.");
     RevertHdmiVicTiming(displayId);
+  }
+  if (const std::optional<NV_COLOR_DATA> colour = LoadSavedColour())
+  {
+    CLog::Log(LOGWARNING, "Dolby Vision output: restoring the output colour a previous session "
+                          "changed.");
+    RestoreColour(displayId, *colour);
   }
   NvAPI_Unload();
 #endif
