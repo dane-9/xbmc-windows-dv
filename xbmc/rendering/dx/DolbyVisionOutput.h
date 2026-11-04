@@ -9,6 +9,7 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 
 #include <d3d11.h>
@@ -39,8 +40,8 @@ public:
   /*!
    * \brief Sets the window Kodi presents to.
    *
-   * Also reverts a Dolby Vision timing that a previous Kodi session left
-   * applied on the window's display.
+   * Also ends the Dolby Vision state and reverts the timing that a previous
+   * Kodi session left on the window's display.
    */
   void SetWindow(HWND window);
 
@@ -130,6 +131,14 @@ public:
    */
   static OutputMode SelectedMode(int width, int height, double fps);
 
+  /*!
+   * \brief Runs the helper process that leaving the output starts, when this
+   * process was started as one.
+   *
+   * \return the process exit code for a helper process, nothing otherwise
+   */
+  static std::optional<int> RunExitHelper();
+
 private:
   static bool CanEnableOn(const std::wstring& gdiName, int width, int height, double fps);
   // gdiName is Kodi's display (\\.\DISPLAYn). prepareOutput readies the
@@ -140,7 +149,7 @@ private:
               double fps,
               const std::function<bool()>& prepareOutput);
   void Restore();
-  static void RemoveLeftoverTiming(const std::wstring& gdiName);
+  static void RemoveLeftoverOutput(const std::wstring& gdiName);
   std::wstring DisplayName() const;
   bool PrepareCarrierSwapChain(DeviceResources& resources, unsigned width, unsigned height);
   // Leaves the output; with resources, the swapchain returns to Kodi's format.
