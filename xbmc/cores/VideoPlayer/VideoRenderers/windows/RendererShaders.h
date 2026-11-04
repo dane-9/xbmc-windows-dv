@@ -38,6 +38,13 @@ public:
 
   static CRendererBase* Create(CVideoSettings& videoSettings);
   static void GetWeight(std::map<RenderMethod, int>& weights, const VideoPicture& picture);
+#if defined(TARGET_WINDOWS_DESKTOP)
+  /*!
+   * \brief Whether the Dolby Vision output can take a picture; the output
+   * works only in this renderer.
+   */
+  static bool WantsDolbyVisionOutput(const VideoPicture& picture);
+#endif
 
 protected:
   explicit CRendererShaders(CVideoSettings& videoSettings);

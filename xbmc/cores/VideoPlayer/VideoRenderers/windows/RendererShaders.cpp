@@ -128,19 +128,18 @@ void CRendererShaders::GetWeight(std::map<RenderMethod, int>& weights, const Vid
   }
 #endif
 
-#if defined(TARGET_WINDOWS_DESKTOP)
-  // the Dolby Vision output is only implemented in this renderer
-  const float fps =
-      picture.iDuration > 0 ? static_cast<float>(DVD_TIME_BASE / picture.iDuration) : 0.0f;
-  if (IsDolbyVisionOutputPicture(picture, av_pixel_format, fps))
-    weight += 2000;
-#endif
-
   if (weight > 0)
     weights[RENDER_PS] = weight;
 }
 
 #if defined(TARGET_WINDOWS_DESKTOP)
+bool CRendererShaders::WantsDolbyVisionOutput(const VideoPicture& picture)
+{
+  return IsDolbyVisionOutputPicture(
+      picture, picture.videoBuffer->GetFormat(),
+      picture.iDuration > 0 ? static_cast<float>(DVD_TIME_BASE / picture.iDuration) : 0.0f);
+}
+
 bool CRendererShaders::IsDolbyVisionOutputPicture(const VideoPicture& picture,
                                                   AVPixelFormat format,
                                                   float fps)
