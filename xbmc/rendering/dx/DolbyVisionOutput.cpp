@@ -23,6 +23,7 @@
 #include "utils/log.h"
 #include "windowing/GraphicContext.h"
 #include "windowing/Resolution.h"
+#include "windowing/WinSystem.h"
 
 #include "platform/win32/CharsetConverter.h"
 #include "platform/win32/WIN32Util.h"
@@ -540,8 +541,14 @@ void ClearRefusal()
 }
 
 // The read-only conditions for entering Dolby Vision output for a width x height
-// stream at fps. On success NVAPI stays initialized for the caller.
-std::optional<EntryState> CheckEntry(const std::wstring& gdiName, int width, int height, double fps)
+// stream at fps. On success NVAPI stays initialized for the caller. A query
+// (not the entry itself) accepts a Windows HDR desktop that Kodi will switch.
+std::optional<EntryState> CheckEntry(const std::wstring& gdiName,
+                                     int width,
+                                     int height,
+                                     double fps,
+                                     bool query,
+                                     bool* hdrStillOn = nullptr)
 {
   if (!DX::CDolbyVisionOutput::IsAllowedBySettings())
     return {};
@@ -602,10 +609,21 @@ std::optional<EntryState> CheckEntry(const std::wstring& gdiName, int width, int
   entry.retainedReplay = entryMode == NV_HDR_MODE_DOLBY_VISION && ReportedSdr(entry.displayId) &&
                          current.format && IsMovieTiming(entry.timing, *current.format) &&
                          (entry.timing.etc.status & 0xffff) != DOLBY_VISION_TIMING_STATUS;
-  if ((entryMode != NV_HDR_MODE_OFF && !entry.retainedReplay) ||
-      CWIN32Util::GetWindowsHDRStatus() != HDR_STATUS::HDR_OFF)
+  const HDR_STATUS windowsHdr = CWIN32Util::GetWindowsHDRStatus();
+  // Kodi's renderer turns Windows HDR off for a Dolby Vision stream when it
+  // may switch HDR, and back on at the end.
+  const bool kodiSwitchesHdr = query && windowsHdr == HDR_STATUS::HDR_ON &&
+                               CServiceBroker::GetWinSystem()->IsHDRDisplaySettingEnabled();
+  if (!kodiSwitchesHdr &&
+      ((entryMode != NV_HDR_MODE_OFF && !entry.retainedReplay) || windowsHdr != HDR_STATUS::HDR_OFF))
   {
-    LogRefusal(LOGWARNING, "requires an SDR desktop with Windows HDR off.");
+    if (hdrStillOn)
+      *hdrStillOn = true;
+    LogRefusal(LOGWARNING,
+               StringUtils::Format("requires an SDR desktop with Windows HDR off, or \"Adjust "
+                                   "display HDR mode\" to turn it off (NVAPI mode {}, Windows HDR "
+                                   "{}).",
+                                   static_cast<int>(entryMode), static_cast<int>(windowsHdr)));
     NvAPI_Unload();
     return {};
   }
@@ -687,7 +705,7 @@ bool DX::CDolbyVisionOutput::CanEnableOn(const std::wstring& gdiName,
                                          double fps)
 {
 #ifdef HAVE_NVAPI
-  if (!CheckEntry(gdiName, width, height, fps))
+  if (!CheckEntry(gdiName, width, height, fps, true))
     return false;
   NvAPI_Unload();
   return true;
@@ -703,7 +721,17 @@ bool DX::CDolbyVisionOutput::Enable(const std::wstring& gdiName,
                                     const std::function<bool()>& prepareOutput)
 {
 #ifdef HAVE_NVAPI
-  const std::optional<EntryState> entry = CheckEntry(gdiName, width, height, fps);
+  // The driver and Windows report a Windows HDR switch made for this stream
+  // with a delay.
+  std::optional<EntryState> entry;
+  for (unsigned attempt = 0; attempt < 30; ++attempt)
+  {
+    bool hdrStillOn = false;
+    entry = CheckEntry(gdiName, width, height, fps, false, &hdrStillOn);
+    if (entry || !hdrStillOn)
+      break;
+    Sleep(100);
+  }
   if (!entry)
     return false;
   m_impl->initialized = true;
