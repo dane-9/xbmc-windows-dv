@@ -383,7 +383,9 @@ bool CDoviTunnel::Render(const CRenderBuffer& buffer,
 
   // Level-5 offsets often describe a different encode of the film, so only
   // the canvas outside the picture is blanked.
-  const DvCarrierParams params{picture, &d.packets, scaled ? picture : DvRect{}};
+  // Scaling resamples chroma as sited between its luma rows.
+  const DvCarrierParams params{picture, &d.packets, scaled ? picture : DvRect{},
+                               !scaled && buffer.chromaLocation == AVCHROMA_LOC_TOPLEFT};
   const unsigned padLeft = scaled ? 0 : picture.left;
   const unsigned padTop = scaled ? 0 : picture.top;
   const bool packed = reshape ? d.carrier.PackReshape(bl, padLeft, padTop, d.lut, params, texture)

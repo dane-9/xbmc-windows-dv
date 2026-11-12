@@ -91,13 +91,15 @@ DvScaleKernel ScaleKernelFromKodi(const float* table, bool sixTaps);
  *
  * mask is in target pixels; outside it the frame is black. A non-empty scaled
  * rectangle (even coordinates) composes the picture at its own size and
- * resamples it into that rectangle.
+ * resamples it into that rectangle. chromaTopLeft is set for chroma sited at
+ * the top left of its luma rows instead of between them.
  */
 struct DvCarrierParams
 {
   DvRect mask;
   const std::vector<DvPacket>* packets = nullptr;
   DvRect scaled;
+  bool chromaTopLeft = false;
 };
 
 /*!

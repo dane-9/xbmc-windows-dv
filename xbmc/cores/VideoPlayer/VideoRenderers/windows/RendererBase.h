@@ -98,6 +98,7 @@ public:
   std::shared_ptr<const DoviRpu> doviRpu;
   std::shared_ptr<::CVideoBuffer> doviEnhancement;
   double pts = 0.0;
+  AVChromaLocation chromaLocation = AVCHROMA_LOC_UNSPECIFIED;
 
 protected:
   CRenderBuffer(AVPixelFormat av_pix_format, unsigned width, unsigned height);

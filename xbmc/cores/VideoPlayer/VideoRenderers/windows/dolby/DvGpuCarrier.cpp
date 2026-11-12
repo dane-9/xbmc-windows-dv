@@ -151,7 +151,7 @@ struct ReshapeParams
 
 struct PackParams
 {
-  std::uint32_t width, height, bits, pad;
+  std::uint32_t width, height, bits, topLeft;
   std::uint32_t mask[4];
   std::uint32_t packets[MAX_PACKETS * PACKET_BYTES / 4];
 };
@@ -684,6 +684,7 @@ bool CDvGpuCarrier::RecordPack(const DvCarrierParams& carrier,
   params.width = width;
   params.height = height;
   params.bits = static_cast<std::uint32_t>(carrier.packets->size() * 3 * PACKET_BYTES * 8);
+  params.topLeft = carrier.chromaTopLeft ? 1 : 0;
   params.mask[0] = carrier.mask.left;
   params.mask[1] = carrier.mask.top;
   params.mask[2] = carrier.mask.right;

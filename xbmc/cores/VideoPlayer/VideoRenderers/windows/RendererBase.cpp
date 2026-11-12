@@ -81,6 +81,7 @@ void CRenderBuffer::AppendPicture(const VideoPicture& picture)
   doviRpu = picture.doviRpu;
   doviEnhancement = picture.doviEnhancement;
   pts = picture.pts;
+  chromaLocation = picture.chroma_position;
 
   hasDisplayMetadata = picture.hasDisplayMetadata;
   displayMetadata = picture.displayMetadata;
