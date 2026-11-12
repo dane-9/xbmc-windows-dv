@@ -434,13 +434,29 @@ std::optional<NV_TIMING> GetTiming(NvU32 displayId,
 
 bool IsMovieTiming(const NV_TIMING& t, const HdmiVicFormat& format)
 {
+  // Drivers report 1000/1001 rates either at the nominal rate or the exact one;
+  // the pixel clock tells those formats apart.
+  const NvU32 exactRrx1k = (format.numerator * 1000 + format.denominator / 2) / format.denominator;
+  const auto within1 = [](NvU32 value, NvU32 expected)
+  { return value + 1 >= expected && value <= expected + 1; };
   return t.HVisible == format.width && t.VVisible == format.height && t.HBorder == 0 &&
          t.VBorder == 0 && t.HTotal == format.hTotal && t.VTotal == format.vTotal &&
-         t.pclk + 1 >= format.pclk && t.pclk <= format.pclk + 1 &&
-         t.HFrontPorch == format.hFrontPorch && t.HSyncWidth == format.hSyncWidth &&
-         t.VFrontPorch == format.vFrontPorch && t.VSyncWidth == format.vSyncWidth &&
-         t.HSyncPol == 0 && t.VSyncPol == 0 && t.interlaced == 0 &&
-         t.etc.rrx1k + 1 >= format.rrx1k && t.etc.rrx1k <= format.rrx1k + 1;
+         within1(t.pclk, format.pclk) && t.HFrontPorch == format.hFrontPorch &&
+         t.HSyncWidth == format.hSyncWidth && t.VFrontPorch == format.vFrontPorch &&
+         t.VSyncWidth == format.vSyncWidth && t.HSyncPol == 0 && t.VSyncPol == 0 &&
+         t.interlaced == 0 &&
+         (within1(t.etc.rrx1k, format.rrx1k) || within1(t.etc.rrx1k, exactRrx1k));
+}
+
+std::string DescribeTiming(const std::optional<NV_TIMING>& t)
+{
+  if (!t)
+    return "none";
+  return StringUtils::Format(
+      "{}x{} total {}x{} front porch {}/{} sync {}/{} polarity {}/{} pclk {} rrx1k {}{}",
+      t->HVisible, t->VVisible, t->HTotal, t->VTotal, t->HFrontPorch, t->VFrontPorch,
+      t->HSyncWidth, t->VSyncWidth, t->HSyncPol, t->VSyncPol, t->pclk, t->etc.rrx1k,
+      t->interlaced ? " interlaced" : "");
 }
 
 bool HasHdmiVicTiming(NvU32 displayId, const HdmiVicFormat& format)
@@ -458,9 +474,10 @@ bool ApplyHdmiVicTiming(NvU32 displayId, const HdmiVicFormat& format)
 {
   // The EDID lookup can return the 1000/1001 variant; the current mode is the
   // one Kodi switched to.
-  std::optional<NV_TIMING> timing =
+  const std::optional<NV_TIMING> edid =
       GetTiming(displayId, NV_TIMING_OVERRIDE_EDID, format.width, format.height,
                 static_cast<float>(format.numerator) / format.denominator);
+  std::optional<NV_TIMING> timing = edid;
   if (!timing || !IsMovieTiming(*timing, format))
     timing = GetTiming(displayId, NV_TIMING_OVERRIDE_CURRENT);
   if (!timing || !IsMovieTiming(*timing, format))
@@ -468,6 +485,8 @@ bool ApplyHdmiVicTiming(NvU32 displayId, const HdmiVicFormat& format)
     CLog::Log(
         LOGERROR, "Dolby Vision output: the EDID {}x{}/{:.3f} timing is not the expected one.",
         format.width, format.height, static_cast<double>(format.numerator) / format.denominator);
+    CLog::Log(LOGERROR, "Dolby Vision output: EDID timing: {}; current timing: {}.",
+              DescribeTiming(edid), DescribeTiming(timing));
     return false;
   }
   timing->etc.status = (timing->etc.status & 0xffff0000u) | DOLBY_VISION_TIMING_STATUS;
