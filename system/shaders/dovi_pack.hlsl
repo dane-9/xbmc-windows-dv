@@ -41,6 +41,8 @@ void main(uint3 id : SV_DispatchThreadID)
   uint luma = gY.Load(int3(id.xy, 0));
   uint r = y >> 1;
   uint a = (y & 1) ? min(r + 1, gH / 2 - 1) : (r > 0 ? r - 1 : 0);
+  // The picture's edge rows take no chroma from outside it.
+  a = clamp(a, gMask.y / 2, gMask.w / 2 - 1);
   uint c0;
   uint c1;
   if (x & 1)
