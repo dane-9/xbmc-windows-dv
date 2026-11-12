@@ -37,6 +37,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <nvapi.h>
@@ -99,6 +100,8 @@ struct DX::CDolbyVisionOutput::Impl
   bool candidate{};
   bool enableAttempted{};
   bool carrierSwapChain{};
+  // Kodi's format of an exclusive fullscreen swapchain used as the carrier.
+  DXGI_FORMAT exclusiveFormat{DXGI_FORMAT_UNKNOWN};
   bool suspended{};
   bool pausedForFocus{};
   bool loggedGui{};
@@ -655,6 +658,24 @@ std::optional<EntryState> CheckEntry(const std::wstring& gdiName,
   return entry;
 }
 #endif
+
+// Recreating an exclusive fullscreen swapchain leaves exclusive fullscreen,
+// and DXGI then restores the desktop mode, so its format is changed in place.
+bool ResizeExclusiveSwapChain(DX::DeviceResources& resources, DXGI_FORMAT format)
+{
+  IDXGISwapChain1* swapChain = resources.GetSwapChain();
+  DXGI_SWAP_CHAIN_DESC1 desc{};
+  if (!swapChain || FAILED(swapChain->GetDesc1(&desc)))
+    return false;
+  resources.ReleaseBackBuffer();
+  const HRESULT hr = swapChain->ResizeBuffers(desc.BufferCount, desc.Width, desc.Height, format,
+                                              DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH);
+  resources.CreateBackBuffer();
+  if (FAILED(hr))
+    CLog::Log(LOGERROR, "Dolby Vision output: resizing the exclusive swapchain failed ({:#x}).",
+              static_cast<unsigned long>(hr));
+  return SUCCEEDED(hr);
+}
 } // namespace
 
 DX::CDolbyVisionOutput::CDolbyVisionOutput() : m_impl(std::make_unique<Impl>())
@@ -1066,30 +1087,47 @@ bool DX::CDolbyVisionOutput::PrepareCarrierSwapChain(DeviceResources& resources,
                                                      unsigned width,
                                                      unsigned height)
 {
+  BOOL exclusive = FALSE;
+  DXGI_SWAP_CHAIN_DESC1 desc{};
+  if (resources.GetSwapChain())
+  {
+    resources.GetSwapChain()->GetFullscreenState(&exclusive, nullptr);
+    resources.GetSwapChain()->GetDesc1(&desc);
+  }
+
   m_impl->carrierSwapChain = true;
-  resources.RecreateSwapChain();
+  if (exclusive)
+  {
+    m_impl->exclusiveFormat = desc.Format;
+    if (!ResizeExclusiveSwapChain(resources, DXGI_FORMAT_B8G8R8A8_UNORM))
+      return false;
+  }
+  else
+  {
+    resources.RecreateSwapChain();
+  }
   CD3DTexture& backBuffer = resources.GetBackBuffer();
   if (!resources.GetSwapChain() || !backBuffer.Get())
     return false;
 
   // Kodi's refresh-rate switching and the NVAPI timing set the display mode; the
-  // borderless 8-bit swapchain only needs to cover it so Windows flips it unchanged.
+  // 8-bit swapchain only needs to cover it so Windows flips it unchanged.
   BOOL fullscreen = FALSE;
   resources.GetSwapChain()->GetFullscreenState(&fullscreen, nullptr);
-  if (fullscreen || backBuffer.GetFormat() != DXGI_FORMAT_B8G8R8A8_UNORM ||
+  if (fullscreen != exclusive || backBuffer.GetFormat() != DXGI_FORMAT_B8G8R8A8_UNORM ||
       backBuffer.GetWidth() != width || backBuffer.GetHeight() != height)
   {
-    CLog::Log(
-        LOGERROR,
-        "Dolby Vision output: borderless {}x{} BGRA8 swapchain unavailable (exclusive {}, {}x{} "
-        "format {}).",
-        width, height, fullscreen != FALSE, backBuffer.GetWidth(), backBuffer.GetHeight(),
-        static_cast<int>(backBuffer.GetFormat()));
+    CLog::Log(LOGERROR,
+              "Dolby Vision output: {} {}x{} BGRA8 swapchain unavailable (exclusive {}, {}x{} "
+              "format {}).",
+              exclusive ? "exclusive" : "borderless", width, height, fullscreen != FALSE,
+              backBuffer.GetWidth(), backBuffer.GetHeight(),
+              static_cast<int>(backBuffer.GetFormat()));
     return false;
   }
 
-  CLog::Log(LOGDEBUG, "Dolby Vision output: borderless {}x{} BGRA8 swapchain prepared.", width,
-            height);
+  CLog::Log(LOGDEBUG, "Dolby Vision output: {} {}x{} BGRA8 swapchain prepared.",
+            exclusive ? "exclusive" : "borderless", width, height);
   return true;
 }
 
@@ -1103,6 +1141,7 @@ void DX::CDolbyVisionOutput::Leave(DeviceResources* resources)
   if (d.carrierSwapChain)
   {
     d.carrierSwapChain = false;
+    const DXGI_FORMAT exclusiveFormat = std::exchange(d.exclusiveFormat, DXGI_FORMAT_UNKNOWN);
     if (resources)
     {
       // Without the Dolby Vision signal the last carrier frame shows as false
@@ -1115,7 +1154,12 @@ void DX::CDolbyVisionOutput::Leave(DeviceResources* resources)
                                                                 black);
         resources->GetSwapChain()->Present(0, 0);
       }
-      resources->RecreateSwapChain();
+      BOOL exclusive = FALSE;
+      if (resources->GetSwapChain())
+        resources->GetSwapChain()->GetFullscreenState(&exclusive, nullptr);
+      if (!exclusive || exclusiveFormat == DXGI_FORMAT_UNKNOWN ||
+          !ResizeExclusiveSwapChain(*resources, exclusiveFormat))
+        resources->RecreateSwapChain();
     }
   }
 }
