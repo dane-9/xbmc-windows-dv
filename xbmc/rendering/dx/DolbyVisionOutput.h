@@ -87,6 +87,12 @@ public:
   static bool IsGuiVisible();
 
   /*!
+   * \brief The display's peak luminance from its Dolby Vision capabilities, as
+   * a 12-bit PQ code value.
+   */
+  std::optional<unsigned> DisplayPeakPq() const;
+
+  /*!
    * \brief True while the output needs the 8-bit carrier swapchain instead of
    * Kodi's own.
    */

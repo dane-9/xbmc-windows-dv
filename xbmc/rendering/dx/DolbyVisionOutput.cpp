@@ -12,6 +12,7 @@
 #include "ServiceBroker.h"
 #include "application/ApplicationComponents.h"
 #include "application/ApplicationPlayer.h"
+#include "cores/VideoPlayer/VideoRenderers/windows/dolby/DvRpuTransport.h"
 #include "filesystem/File.h"
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
@@ -1141,6 +1142,37 @@ void DX::CDolbyVisionOutput::Suspend(DeviceResources& resources)
   d.packedFrame = frame;
   d.compositeGui = std::move(compositeGui);
   d.suspended = true;
+}
+
+std::optional<unsigned> DX::CDolbyVisionOutput::DisplayPeakPq() const
+{
+#ifdef HAVE_NVAPI
+  const std::optional<NvU32> displayId = OpenDisplay(DisplayName(), false);
+  if (!displayId)
+    return {};
+  NV_HDR_CAPABILITIES capabilities{};
+  capabilities.version = NV_HDR_CAPABILITIES_VER;
+  const NvAPI_Status status = NvAPI_Disp_GetHdrCapabilities(*displayId, &capabilities);
+  NvAPI_Unload();
+  if (status != NVAPI_OK)
+    return {};
+
+  // Coded as in the Dolby VSVDB of the Dolby Vision HDMI transmission spec.
+  const auto& dv = capabilities.dv_static_metadata;
+  const unsigned code = dv.target_max_luminance;
+  std::optional<unsigned> pq;
+  if (dv.VSVDB_version == 0 && code <= 4095)
+    pq = code;
+  else if (dv.VSVDB_version == 1 && code <= 127)
+    pq = DVTUNNEL::NitsToPq(100.0 + 50.0 * code);
+  else if (dv.VSVDB_version == 2 && code <= 31)
+    pq = 2055 + 65 * code;
+  CLog::Log(LOGINFO, "Dolby Vision output: display peak PQ {} (VSVDB version {}, code {}).",
+            pq ? std::to_string(*pq) : "unknown", static_cast<unsigned>(dv.VSVDB_version), code);
+  return pq;
+#else
+  return {};
+#endif
 }
 
 bool DX::CDolbyVisionOutput::IsGuiVisible()

@@ -7,6 +7,7 @@
  */
 #pragma once
 
+#include "DvRpuTransport.h"
 #include "cores/VideoSettings.h"
 #include "guilib/D3DResource.h"
 
@@ -79,6 +80,11 @@ public:
    * \brief Sets Kodi's video scaling method, used when the picture is upscaled.
    */
   void SetScalingMethod(ESCALINGMETHOD method);
+
+  /*!
+   * \brief Sets when content mapping v2.9 metadata is sent as v4.0.
+   */
+  void SetCmv40Append(const DVTUNNEL::DvCmv40Policy& policy);
 
   /*!
    * \brief Renders one picture into a carrier frame.

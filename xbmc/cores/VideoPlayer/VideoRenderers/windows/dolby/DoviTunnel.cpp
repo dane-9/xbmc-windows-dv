@@ -171,6 +171,8 @@ struct CDoviTunnel::Impl
   std::size_t lastPacketCount = 0;
   std::optional<DvGuiTransform> gui;
   ESCALINGMETHOD scalingMethod = VS_SCALINGMETHOD_CUBIC_CATMULL;
+  DvCmv40Policy cmv40;
+  bool loggedCmv40 = false;
 };
 
 CDoviTunnel::CDoviTunnel() = default;
@@ -226,6 +228,12 @@ void CDoviTunnel::SetScalingMethod(ESCALINGMETHOD method)
   if (!m_impl->carrier.SetScaleKernel(KodiScaleKernel(method)))
     CLog::Log(LOGWARNING, "Dolby Vision tunnel: cannot use scaling method {}.",
               static_cast<int>(method));
+}
+
+void CDoviTunnel::SetCmv40Append(const DvCmv40Policy& policy)
+{
+  if (m_impl)
+    m_impl->cmv40 = policy;
 }
 
 bool CDoviTunnel::Render(const CRenderBuffer& buffer,
@@ -298,13 +306,18 @@ bool CDoviTunnel::Render(const CRenderBuffer& buffer,
     d.stats.Mode({false, residual, d.tables.AnyChromaMmr()});
   }
 
-  std::optional<DvDisplayMetadata> metadata = SerializeDisplayMetadata(blob, blobSize);
+  std::optional<DvDisplayMetadata> metadata = SerializeDisplayMetadata(blob, blobSize, d.cmv40);
   // The GUI may draw into letterbox areas, so while it is visible the TV must
   // treat the whole canvas as active.
   const DvPlacement placement{width, height, canvasWidth, canvasHeight, picture};
   if (!metadata ||
       !SetLevel5ActiveArea(metadata->bytes, guiVisible ? nullptr : &placement))
     return d.Skip(DvSkip::TRANSPORT_REJECTED);
+  if (metadata->cmv40Appended && !d.loggedCmv40)
+  {
+    CLog::Log(LOGINFO, "Dolby Vision tunnel: sending content mapping v2.9 as v4.0.");
+    d.loggedCmv40 = true;
+  }
   // As other Dolby Vision sources do, change the metadata ID with the metadata;
   // a display may take changed metadata only with a new ID.
   if (!d.previousMetadata.empty() && metadata->bytes != d.previousMetadata)

@@ -11,6 +11,7 @@
 #include "cores/VideoPlayer/VideoRenderers/windows/dolby/DvMappingTables.h"
 #include "cores/VideoPlayer/VideoRenderers/windows/dolby/DvRpuTransport.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -431,4 +432,59 @@ TEST(TestDolbyVisionTunnel, SetsTheLevel5ActiveArea)
   const DvPlacement offCanvas{3840, 2160, 3840, 2160, {0, 1, 3840, 2161}};
   std::vector<std::uint8_t> off = plain;
   EXPECT_FALSE(SetLevel5ActiveArea(off, &offCanvas));
+}
+
+TEST(TestDolbyVisionTunnel, SendsContentMappingV29AsV40)
+{
+  auto serialize = [](const std::vector<AVDOVIDmData>& blocks, DvCmv40Append append,
+                      unsigned maxSourcePq = 0, unsigned sourceMaxPq = 0)
+  {
+    CBlobBuilder builder;
+    builder.blocks = blocks;
+    if (sourceMaxPq)
+      builder.color.source_max_pq = static_cast<uint16_t>(sourceMaxPq);
+    const std::vector<std::uint8_t> blob = builder.Build();
+    return SerializeDisplayMetadata(blob.data(), blob.size(), {append, maxSourcePq})
+        .value()
+        .bytes;
+  };
+  const std::vector<AVDOVIDmData> trims = {Block(1), Block(2)};
+  const std::vector<std::uint8_t> plain = serialize(trims, DvCmv40Append::OFF);
+
+  // levels 3, 9, 11 and 254 follow the v2.9 blocks
+  const std::vector<std::uint8_t> appended = serialize(trims, DvCmv40Append::ALWAYS);
+  const std::vector<std::uint8_t> tail = {
+      0, 0, 0, 6, 3,   0x08, 0x00, 0x08, 0x00, 0x08, 0x00, // L3, no offsets
+      0, 0, 0, 1, 9,   0,                                  // L9, DCI-P3 D65
+      0, 0, 0, 4, 11,  1, 0, 0, 0,                         // L11, cinema
+      0, 0, 0, 2, 254, 0, 2};                              // L254, CM v4.0.2
+  ASSERT_EQ(appended.size(), plain.size() + tail.size());
+  EXPECT_EQ(appended[70], plain[70] + 4);
+  EXPECT_TRUE(std::equal(plain.begin() + 71, plain.end(), appended.begin() + 71));
+  EXPECT_TRUE(std::equal(tail.begin(), tail.end(), appended.begin() + plain.size()));
+
+  // without trims only when there is no level 2
+  EXPECT_EQ(serialize(trims, DvCmv40Append::WITHOUT_TRIMS), plain);
+  const std::vector<AVDOVIDmData> noTrims = {Block(1)};
+  EXPECT_EQ(serialize(noTrims, DvCmv40Append::WITHOUT_TRIMS),
+            serialize(noTrims, DvCmv40Append::ALWAYS));
+
+  // auto: without trims, or when the master (4000 nits here) is no brighter than the limit
+  EXPECT_EQ(serialize(trims, DvCmv40Append::AUTO, NitsToPq(1000)), plain);
+  EXPECT_EQ(serialize(trims, DvCmv40Append::AUTO, 3696), appended);
+  EXPECT_EQ(serialize(trims, DvCmv40Append::AUTO, 3695), plain);
+  EXPECT_EQ(serialize(trims, DvCmv40Append::AUTO), plain);
+  EXPECT_EQ(serialize(noTrims, DvCmv40Append::AUTO), serialize(noTrims, DvCmv40Append::ALWAYS));
+  EXPECT_EQ(serialize(trims, DvCmv40Append::AUTO, NitsToPq(1000), 3079),
+            serialize(trims, DvCmv40Append::ALWAYS, 0, 3079));
+  EXPECT_EQ(NitsToPq(0), 0u);
+  EXPECT_EQ(NitsToPq(100), 2081u);
+  EXPECT_EQ(NitsToPq(1000), 3079u);
+  EXPECT_EQ(NitsToPq(10000), 4095u);
+
+  // content mapping v4.0 metadata is left alone
+  AVDOVIDmData level254 = Block(254);
+  level254.l254.dm_version_index = 2;
+  const std::vector<AVDOVIDmData> cm40 = {Block(1), level254};
+  EXPECT_EQ(serialize(cm40, DvCmv40Append::ALWAYS), serialize(cm40, DvCmv40Append::OFF));
 }

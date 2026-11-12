@@ -145,6 +145,9 @@ public:
   static constexpr auto SETTING_VIDEOPLAYER_ALLOWEDHDRFORMATS = "videoplayer.allowedhdrformats";
   static constexpr auto SETTING_VIDEOPLAYER_DOVIZEROLEVEL5 = "videoplayer.dovizerolevel5";
   static constexpr auto SETTING_VIDEOPLAYER_DOLBYVISIONOUTPUT = "videoplayer.dolbyvisionoutput";
+  static constexpr auto SETTING_VIDEOPLAYER_DOLBYVISIONCMV40 = "videoplayer.dolbyvisioncmv40";
+  static constexpr auto SETTING_VIDEOPLAYER_DOLBYVISIONCMV40TRIGGER =
+      "videoplayer.dolbyvisioncmv40trigger";
   static constexpr auto SETTING_VIDEOPLAYER_FILESTREAMDISPLAYORDER =
       "videoplayer.filestreamdisplayorder";
   static constexpr auto SETTING_VIDEOPLAYER_QUEUETIMESIZE = "videoplayer.queuetimesize";

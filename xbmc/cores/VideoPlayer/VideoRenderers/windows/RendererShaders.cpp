@@ -14,8 +14,11 @@
 #endif
 #if defined(TARGET_WINDOWS_DESKTOP)
 #include "Interface/TimingConstants.h"
+#include "ServiceBroker.h"
 #include "dolby/DoviTunnel.h"
 #include "rendering/dx/DeviceResources.h"
+#include "settings/Settings.h"
+#include "settings/SettingsComponent.h"
 #endif
 #include "rendering/dx/RenderContext.h"
 #include "utils/CPUInfo.h"
@@ -26,6 +29,7 @@
 #include "utils/memcpy_sse2.h"
 #include "windowing/GraphicContext.h"
 
+#include <algorithm>
 #include <cmath>
 
 #include <ppl.h>
@@ -205,8 +209,27 @@ bool CRendererShaders::Configure(const VideoPicture& picture, float fps, unsigne
   DX::DeviceResources::Get()->GetDolbyVisionOutput().SetCandidate(tunnelCandidate, fps,
                                                                   picture.iWidth, picture.iHeight);
   if (tunnelCandidate)
+  {
     CLog::Log(LOGINFO, "Dolby Vision tunnel: renderer armed for Profile {} at {}x{} {:.3f} fps",
               picture.doviRpu->profile, picture.iWidth, picture.iHeight, fps);
+    const auto settings = CServiceBroker::GetSettingsComponent()->GetSettings();
+    DVTUNNEL::DvCmv40Policy cmv40;
+    cmv40.append = std::clamp(static_cast<DVTUNNEL::DvCmv40Append>(
+                                  settings->GetInt(CSettings::SETTING_VIDEOPLAYER_DOLBYVISIONCMV40)),
+                              DVTUNNEL::DvCmv40Append::OFF, DVTUNNEL::DvCmv40Append::AUTO);
+    if (cmv40.append == DVTUNNEL::DvCmv40Append::AUTO)
+    {
+      // 0 compares the master with the display's peak
+      const int triggerNits =
+          settings->GetInt(CSettings::SETTING_VIDEOPLAYER_DOLBYVISIONCMV40TRIGGER);
+      if (triggerNits > 0)
+        cmv40.maxSourcePq = DVTUNNEL::NitsToPq(triggerNits);
+      else
+        cmv40.maxSourcePq =
+            DX::DeviceResources::Get()->GetDolbyVisionOutput().DisplayPeakPq().value_or(0);
+    }
+    m_doviTunnel->SetCmv40Append(cmv40);
+  }
 #endif
 
   if (__super::Configure(picture, fps, orientation))

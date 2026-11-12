@@ -53,22 +53,55 @@ struct DvDisplayMetadata
 {
   std::vector<std::uint8_t> bytes;
   DvColourParams colour;
+  bool cmv40Appended = false;
 };
 
 using DvPacket = std::array<std::uint8_t, PACKET_BYTES>;
 
 /*!
+ * \brief When content mapping v2.9 metadata is sent as v4.0.
+ */
+enum class DvCmv40Append
+{
+  OFF,
+  WITHOUT_TRIMS, //!< only when the metadata has no level 2 trims
+  ALWAYS,
+  AUTO, //!< without level 2 trims, or when the master is no brighter than maxSourcePq
+};
+
+/*!
+ * \brief When and for which sources content mapping v4.0 is appended.
+ */
+struct DvCmv40Policy
+{
+  DvCmv40Append append = DvCmv40Append::OFF;
+  //! AUTO: the highest source_max_pq (12-bit PQ) that is appended; 0 appends
+  //! only metadata without trims
+  unsigned maxSourcePq = 0;
+};
+
+/*!
+ * \brief Converts a luminance in cd/m² to a 12-bit SMPTE ST 2084 code value.
+ */
+unsigned NitsToPq(double nits);
+
+/*!
  * \brief Serializes the display management metadata of a picture.
  *
  * Level 6 blocks are dropped; the other extension blocks are rebuilt from
- * FFmpeg's parsed fields.
+ * FFmpeg's parsed fields. Appending content mapping v4.0 adds neutral levels
+ * 3, 9, 11 and 254 to v2.9 metadata, so the display maps it with its v4.0
+ * engine.
  *
  * \param blob an AVDOVIMetadata side-data blob
  * \param blobSize size of blob in bytes
+ * \param cmv40 when to append content mapping v4.0
  * \return the metadata, or empty if the blob is unreadable or a value does not
  *         fit the transport
  */
-std::optional<DvDisplayMetadata> SerializeDisplayMetadata(const void* blob, std::size_t blobSize);
+std::optional<DvDisplayMetadata> SerializeDisplayMetadata(const void* blob,
+                                                          std::size_t blobSize,
+                                                          const DvCmv40Policy& cmv40 = {});
 
 /*!
  * \brief Where a picture sits on the carrier canvas.

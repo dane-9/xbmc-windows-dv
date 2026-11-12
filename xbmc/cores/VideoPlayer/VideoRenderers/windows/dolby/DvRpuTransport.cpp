@@ -11,6 +11,7 @@
 #include "DvBlob.h"
 
 #include <algorithm>
+#include <cmath>
 #include <initializer_list>
 
 namespace DVTUNNEL
@@ -226,8 +227,20 @@ bool BuildPayload(const AVDOVIDmData& dm, std::vector<std::uint8_t>& payload)
 
 } // namespace
 
+unsigned NitsToPq(double nits)
+{
+  constexpr double m1 = 2610.0 / 16384;
+  constexpr double m2 = 2523.0 / 4096 * 128;
+  constexpr double c1 = 3424.0 / 4096;
+  constexpr double c2 = 2413.0 / 4096 * 32;
+  constexpr double c3 = 2392.0 / 4096 * 32;
+  const double y = std::pow(std::clamp(nits / 10000, 0.0, 1.0), m1);
+  return static_cast<unsigned>(std::lround(std::pow((c1 + c2 * y) / (1 + c3 * y), m2) * 4095));
+}
+
 std::optional<DvDisplayMetadata> SerializeDisplayMetadata(const void* blobData,
-                                                          std::size_t blobSize)
+                                                          std::size_t blobSize,
+                                                          const DvCmv40Policy& cmv40)
 {
   const CDvBlob blob(blobData, blobSize);
   const std::optional<AVDOVIRpuDataHeader> header = blob.Header();
@@ -265,6 +278,39 @@ std::optional<DvDisplayMetadata> SerializeDisplayMetadata(const void* blobData,
       return {};
     if (block->level != 6)
       blocks.push_back(*block);
+  }
+  auto hasLevel = [&blocks](std::uint8_t level)
+  {
+    return std::any_of(blocks.begin(), blocks.end(),
+                       [level](const AVDOVIDmData& dm) { return dm.level == level; });
+  };
+  // Level 254 marks v4.0 metadata. The added levels are those of dovi_tool's
+  // safe defaults: no L1 offsets, DCI-P3 D65 mastering, cinema content.
+  const DvCmv40Append mode = cmv40.append;
+  const bool append =
+      mode == DvCmv40Append::ALWAYS ||
+      ((mode == DvCmv40Append::WITHOUT_TRIMS || mode == DvCmv40Append::AUTO) && !hasLevel(2)) ||
+      (mode == DvCmv40Append::AUTO && cmv40.maxSourcePq > 0 &&
+       colour->source_max_pq <= cmv40.maxSourcePq);
+  if (!hasLevel(254) && append)
+  {
+    AVDOVIDmData dm{};
+    dm.level = 3;
+    dm.l3 = {2048, 2048, 2048};
+    blocks.push_back(dm);
+    dm = {};
+    dm.level = 9;
+    dm.l9.source_primary_index = 0;
+    blocks.push_back(dm);
+    dm = {};
+    dm.level = 11;
+    dm.l11.content_type = 1;
+    blocks.push_back(dm);
+    dm = {};
+    dm.level = 254;
+    dm.l254.dm_version_index = 2;
+    blocks.push_back(dm);
+    out.cmv40Appended = true;
   }
   // FFmpeg lists the static blocks (levels 10 and 254 here) first. Send the
   // RPU's order instead: content mapping v2.9 levels, then v4.0 levels.
