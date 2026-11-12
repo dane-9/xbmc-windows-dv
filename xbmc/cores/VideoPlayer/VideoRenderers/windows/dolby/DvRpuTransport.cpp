@@ -298,12 +298,16 @@ std::optional<DvDisplayMetadata> SerializeDisplayMetadata(const void* blobData,
   return out;
 }
 
-bool ClearLevel5Payloads(std::vector<std::uint8_t>& bytes)
+bool SetLevel5ActiveArea(std::vector<std::uint8_t>& bytes, const DvPlacement* placement)
 {
   if (bytes.size() < BASE_BLOCK_BYTES)
     return false;
   const unsigned count = bytes[BASE_BLOCK_BYTES - 1];
   std::size_t pos = BASE_BLOCK_BYTES;
+  std::optional<std::size_t> level5;
+  // Blocks are in RPU order, so a missing level 5 block goes after levels 1, 2
+  // and 4.
+  std::size_t insertAt = 0;
   for (unsigned i = 0; i < count; ++i)
   {
     if (bytes.size() - pos < 5)
@@ -312,14 +316,68 @@ bool ClearLevel5Payloads(std::vector<std::uint8_t>& bytes)
                                (std::size_t{bytes[pos + 1]} << 16) |
                                (std::size_t{bytes[pos + 2]} << 8) | bytes[pos + 3];
     const std::uint8_t level = bytes[pos + 4];
+    if (!insertAt && level != 1 && level != 2 && level != 4)
+      insertAt = pos;
     pos += 5;
-    if (length > bytes.size() - pos || (level == 5 && length != 8))
+    if (length > bytes.size() - pos || (level == 5 && (length != 8 || level5)))
       return false;
     if (level == 5)
-      std::fill_n(bytes.begin() + pos, length, std::uint8_t{0});
+      level5 = pos;
     pos += length;
   }
-  return pos == bytes.size();
+  if (pos != bytes.size())
+    return false;
+
+  std::uint16_t offsets[4] = {}; // left, right, top, bottom
+  if (placement)
+  {
+    const DvPlacement& p = *placement;
+    const DvRect& r = p.picture;
+    if (r.IsEmpty() || r.right > p.canvasWidth || r.bottom > p.canvasHeight ||
+        p.sourceWidth == 0 || p.sourceHeight == 0)
+      return false;
+    unsigned source[4] = {};
+    // Level 5 refers to the full 16:9 frame; a cropped encode has already lost
+    // the letterbox it describes.
+    if (level5 && p.sourceWidth * 9 == p.sourceHeight * 16)
+    {
+      for (int i = 0; i < 4; ++i)
+        source[i] = (unsigned{bytes[*level5 + i * 2]} << 8) | bytes[*level5 + i * 2 + 1];
+      if (source[0] + source[1] >= p.sourceWidth || source[2] + source[3] >= p.sourceHeight)
+        std::fill_n(source, 4, 0u);
+    }
+    const unsigned width = r.right - r.left;
+    const unsigned height = r.bottom - r.top;
+    auto scale = [](unsigned v, unsigned to, unsigned from) { return (v * to + from / 2) / from; };
+    offsets[0] = static_cast<std::uint16_t>(r.left + scale(source[0], width, p.sourceWidth));
+    offsets[1] = static_cast<std::uint16_t>(p.canvasWidth - r.right +
+                                            scale(source[1], width, p.sourceWidth));
+    offsets[2] = static_cast<std::uint16_t>(r.top + scale(source[2], height, p.sourceHeight));
+    offsets[3] = static_cast<std::uint16_t>(p.canvasHeight - r.bottom +
+                                            scale(source[3], height, p.sourceHeight));
+  }
+
+  std::uint8_t payload[8];
+  for (int i = 0; i < 4; ++i)
+  {
+    payload[i * 2] = static_cast<std::uint8_t>(offsets[i] >> 8);
+    payload[i * 2 + 1] = static_cast<std::uint8_t>(offsets[i]);
+  }
+  if (level5)
+  {
+    std::copy_n(payload, 8, bytes.begin() + *level5);
+    return true;
+  }
+  if (!placement)
+    return true;
+  if (count >= AV_DOVI_MAX_EXT_BLOCKS || bytes.size() + 13 > MAX_METADATA_BYTES)
+    return false;
+  const std::uint8_t block[13] = {0, 0, 0, 8, 5, payload[0], payload[1], payload[2],
+                                  payload[3], payload[4], payload[5], payload[6], payload[7]};
+  bytes.insert(bytes.begin() + (insertAt ? insertAt : bytes.size()), std::begin(block),
+               std::end(block));
+  bytes[BASE_BLOCK_BYTES - 1] = static_cast<std::uint8_t>(count + 1);
+  return true;
 }
 
 std::size_t PacketCount(std::size_t metadataBytes)

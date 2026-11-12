@@ -319,6 +319,7 @@ bool CRendererShaders::RenderDolbyVisionOutput()
     resource.As(&decoded);
   m_doviTunnel->SetScalingMethod(m_videoSettings.m_ScalingMethod);
   if (m_doviTunnel->Render(*buf, m_sourceWidth, m_sourceHeight, decoded.Get(), slice,
+                           DX::CDolbyVisionOutput::IsGuiVisible(),
                            m_doviTunnelSurface))
     output.SetFrame(m_doviTunnelSurface.Get(), [this](ID3D11Texture2D* gui, ID3D11Texture2D* frame)
                     { return m_doviTunnel && m_doviTunnel->CompositeGUI(gui, frame); });

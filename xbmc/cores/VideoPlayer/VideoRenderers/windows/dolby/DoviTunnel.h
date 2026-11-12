@@ -92,6 +92,7 @@ public:
    * \param decoded the decoder's P010 texture array on the tunnel's device, or
    *        null when the picture is unavailable
    * \param slice the picture's index in decoded
+   * \param guiVisible true when the GUI will be blended over the frame
    * \param target the carrier frame
    * \return false when the picture was skipped; the reason is logged once
    */
@@ -100,6 +101,7 @@ public:
               unsigned height,
               ID3D11Texture2D* decoded,
               unsigned slice,
+              bool guiVisible,
               CD3DTexture& target);
 
 private:

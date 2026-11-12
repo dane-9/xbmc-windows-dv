@@ -1143,6 +1143,12 @@ void DX::CDolbyVisionOutput::Suspend(DeviceResources& resources)
   d.suspended = true;
 }
 
+bool DX::CDolbyVisionOutput::IsGuiVisible()
+{
+  return CServiceBroker::GetGUI()->GetWindowManager().HasVisibleControls() ||
+         CServiceBroker::GetAppComponents().GetComponent<CApplicationPlayer>()->HasVisibleOverlay();
+}
+
 void DX::CDolbyVisionOutput::PresentFrame(DeviceResources& resources)
 {
   Impl& d = *m_impl;
@@ -1164,9 +1170,7 @@ void DX::CDolbyVisionOutput::PresentFrame(DeviceResources& resources)
   // Fullscreen video usually draws no GUI or subtitles; compositing an empty layer
   // would cost a full-frame copy and pass on every present.
   bool guiReady = false;
-  if (d.compositeGui &&
-      (CServiceBroker::GetGUI()->GetWindowManager().HasVisibleControls() ||
-       CServiceBroker::GetAppComponents().GetComponent<CApplicationPlayer>()->HasVisibleOverlay()))
+  if (d.compositeGui && IsGuiVisible())
   {
     if (!d.guiFrame)
     {

@@ -233,6 +233,7 @@ bool CDoviTunnel::Render(const CRenderBuffer& buffer,
                          unsigned height,
                          ID3D11Texture2D* decoded,
                          unsigned slice,
+                         bool guiVisible,
                          CD3DTexture& target)
 {
   if (!m_impl)
@@ -298,9 +299,11 @@ bool CDoviTunnel::Render(const CRenderBuffer& buffer,
   }
 
   std::optional<DvDisplayMetadata> metadata = SerializeDisplayMetadata(blob, blobSize);
-  // The GUI may draw into letterbox areas, so the TV must treat the whole
-  // canvas as active.
-  if (!metadata || !ClearLevel5Payloads(metadata->bytes))
+  // The GUI may draw into letterbox areas, so while it is visible the TV must
+  // treat the whole canvas as active.
+  const DvPlacement placement{width, height, canvasWidth, canvasHeight, picture};
+  if (!metadata ||
+      !SetLevel5ActiveArea(metadata->bytes, guiVisible ? nullptr : &placement))
     return d.Skip(DvSkip::TRANSPORT_REJECTED);
   // As other Dolby Vision sources do, change the metadata ID with the metadata;
   // a display may take changed metadata only with a new ID.

@@ -370,3 +370,65 @@ TEST(TestDolbyVisionTunnel, ConvertsKodiScalingKernels)
     }
   }
 }
+
+TEST(TestDolbyVisionTunnel, SetsTheLevel5ActiveArea)
+{
+  auto serialize = [](const std::vector<AVDOVIDmData>& blocks)
+  {
+    CBlobBuilder builder;
+    builder.blocks = blocks;
+    const std::vector<std::uint8_t> blob = builder.Build();
+    return SerializeDisplayMetadata(blob.data(), blob.size()).value().bytes;
+  };
+  auto level5 = [](unsigned left, unsigned right, unsigned top, unsigned bottom)
+  {
+    AVDOVIDmData block = Block(5);
+    block.l5 = {static_cast<uint16_t>(left), static_cast<uint16_t>(right),
+                static_cast<uint16_t>(top), static_cast<uint16_t>(bottom)};
+    return block;
+  };
+  auto offsets = [](const std::vector<std::uint8_t>& v, std::size_t at)
+  { return std::vector<unsigned>{U16(v, at), U16(v, at + 2), U16(v, at + 4), U16(v, at + 6)}; };
+
+  // the level 5 payload follows the base block and level 1, at 71 + 11 + 5
+  const std::vector<std::uint8_t> plain = serialize({Block(1), level5(0, 0, 280, 280)});
+  EXPECT_EQ(offsets(plain, 87), (std::vector<unsigned>{0, 0, 280, 280}));
+
+  // while the GUI is visible the whole canvas is active
+  std::vector<std::uint8_t> gui = plain;
+  ASSERT_TRUE(SetLevel5ActiveArea(gui, nullptr));
+  EXPECT_EQ(offsets(gui, 87), (std::vector<unsigned>{0, 0, 0, 0}));
+
+  // offsets scale with the picture
+  std::vector<std::uint8_t> hd = serialize({Block(1), level5(2, 4, 140, 140)});
+  const DvPlacement upscaled{1920, 1080, 3840, 2160, {0, 0, 3840, 2160}};
+  ASSERT_TRUE(SetLevel5ActiveArea(hd, &upscaled));
+  EXPECT_EQ(offsets(hd, 87), (std::vector<unsigned>{4, 8, 280, 280}));
+
+  // a cropped encode keeps only the canvas outside the picture
+  const DvPlacement cropped{3840, 1600, 3840, 2160, {0, 280, 3840, 1880}};
+  std::vector<std::uint8_t> stale = serialize({Block(1), level5(0, 0, 100, 100)});
+  ASSERT_TRUE(SetLevel5ActiveArea(stale, &cropped));
+  EXPECT_EQ(offsets(stale, 87), (std::vector<unsigned>{0, 0, 280, 280}));
+
+  // a missing level 5 block is added after levels 1 and 2
+  const std::vector<std::uint8_t> none = serialize({Block(1), Block(2), Block(254)});
+  std::vector<std::uint8_t> added = none;
+  ASSERT_TRUE(SetLevel5ActiveArea(added, nullptr));
+  EXPECT_EQ(added, none);
+  ASSERT_TRUE(SetLevel5ActiveArea(added, &cropped));
+  ASSERT_EQ(added.size(), none.size() + 13);
+  EXPECT_EQ(added[70], none[70] + 1);
+  EXPECT_EQ(added[105], 5);
+  EXPECT_EQ(offsets(added, 106), (std::vector<unsigned>{0, 0, 280, 280}));
+
+  // inconsistent walks and placements
+  std::vector<std::uint8_t> truncated = plain;
+  truncated.pop_back();
+  EXPECT_FALSE(SetLevel5ActiveArea(truncated, nullptr));
+  std::vector<std::uint8_t> twice = serialize({level5(0, 0, 0, 0), level5(0, 0, 0, 0)});
+  EXPECT_FALSE(SetLevel5ActiveArea(twice, nullptr));
+  const DvPlacement offCanvas{3840, 2160, 3840, 2160, {0, 1, 3840, 2161}};
+  std::vector<std::uint8_t> off = plain;
+  EXPECT_FALSE(SetLevel5ActiveArea(off, &offCanvas));
+}

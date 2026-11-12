@@ -71,11 +71,28 @@ using DvPacket = std::array<std::uint8_t, PACKET_BYTES>;
 std::optional<DvDisplayMetadata> SerializeDisplayMetadata(const void* blob, std::size_t blobSize);
 
 /*!
- * \brief Zeroes the payload of every serialized level 5 block.
- *
- * \return false if the block walk is inconsistent
+ * \brief Where a picture sits on the carrier canvas.
  */
-bool ClearLevel5Payloads(std::vector<std::uint8_t>& bytes);
+struct DvPlacement
+{
+  unsigned sourceWidth = 0;
+  unsigned sourceHeight = 0;
+  unsigned canvasWidth = 0;
+  unsigned canvasHeight = 0;
+  DvRect picture;
+};
+
+/*!
+ * \brief Sets the level 5 active area of serialized metadata.
+ *
+ * The level 5 offsets, in source pixels, are moved to the picture's place on
+ * the canvas; metadata without a level 5 block gets one for the canvas outside
+ * the picture. Without a placement the whole canvas is active.
+ *
+ * \return false if the block walk is inconsistent or the picture is not on the
+ *         canvas
+ */
+bool SetLevel5ActiveArea(std::vector<std::uint8_t>& bytes, const DvPlacement* placement);
 
 /*!
  * \brief Number of packets that carry metadataBytes of metadata.

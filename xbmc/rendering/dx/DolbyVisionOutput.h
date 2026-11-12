@@ -81,6 +81,12 @@ public:
                 std::function<bool(ID3D11Texture2D*, ID3D11Texture2D*)> compositeGUI);
 
   /*!
+   * \brief True when GUI controls or a video overlay will be blended over the
+   * next frame.
+   */
+  static bool IsGuiVisible();
+
+  /*!
    * \brief True while the output needs the 8-bit carrier swapchain instead of
    * Kodi's own.
    */
