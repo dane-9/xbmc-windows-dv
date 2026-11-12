@@ -486,6 +486,8 @@ bool CDVDVideoCodecFFmpeg::Open(CDVDStreamInfo &hints, CDVDCodecOptions &options
       !(hints.codecOptions & CODEC_FORCE_SOFTWARE) &&
       m_processInfo.WantsDolbyVisionEnhancementLayer())
     m_doviEnhancement = CDoviEnhancementDecoder::Create(hints);
+  m_doviHeld = false;
+  m_doviHoldSent.reset();
 
   m_dropCtrl.Reset(true);
   m_eof = false;
@@ -756,7 +758,9 @@ CDVDVideoCodec::VCReturn CDVDVideoCodecFFmpeg::GetPicture(VideoPicture* pVideoPi
     av_packet_free(&avpkt);
   }
 
-  int ret = avcodec_receive_frame(m_pCodecContext, m_pDecodedFrame);
+  // A frame held for its enhancement layer is already in m_pDecodedFrame.
+  int ret = m_doviHeld ? 0 : avcodec_receive_frame(m_pCodecContext, m_pDecodedFrame);
+  m_doviHeld = false;
 
   if (m_decoderState == STATE_HW_FAILED && !m_pHardware)
     return VC_REOPEN;
@@ -825,6 +829,17 @@ CDVDVideoCodec::VCReturn CDVDVideoCodecFFmpeg::GetPicture(VideoPicture* pVideoPi
   }
 
   // here we got a frame
+  if (m_doviEnhancement && HoldForEnhancement())
+    return VC_BUFFER;
+  // Pictures before the enhancement layer can be decoded (after a seek) are
+  // dropped rather than shown without it.
+  if (m_doviEnhancement && m_doviEnhancement->Preroll(m_pDecodedFrame->pts))
+  {
+    m_doviEnhancement->Take(m_pDecodedFrame->pts);
+    av_frame_unref(m_pDecodedFrame);
+    return VC_BUFFER;
+  }
+
   int64_t framePTS = m_pDecodedFrame->best_effort_timestamp;
 
   if (m_pCodecContext->skip_frame > AVDISCARD_DEFAULT)
@@ -958,6 +973,26 @@ CDVDVideoCodec::VCReturn CDVDVideoCodecFFmpeg::GetPicture(VideoPicture* pVideoPi
   return VC_NONE;
 }
 
+bool CDVDVideoCodecFFmpeg::HoldForEnhancement()
+{
+  if (m_codecControlFlags & DVD_CODEC_CTRL_DRAIN)
+  {
+    m_doviEnhancement->Drain();
+    m_doviHoldSent.reset();
+    return false;
+  }
+  // Without a new packet since the last hold, the picture can't have arrived.
+  const std::uint64_t sent = m_doviEnhancement->Sent();
+  if (sent == m_doviHoldSent || !m_doviEnhancement->Waiting(m_pDecodedFrame->pts))
+  {
+    m_doviHoldSent.reset();
+    return false;
+  }
+  m_doviHoldSent = sent;
+  m_doviHeld = true;
+  return true;
+}
+
 bool CDVDVideoCodecFFmpeg::SetPictureParams(VideoPicture* pVideoPicture)
 {
   if (!GetPictureCommon(pVideoPicture))
@@ -996,7 +1031,12 @@ void CDVDVideoCodecFFmpeg::Reset()
   m_iLastKeyframe = m_pCodecContext->has_b_frames;
   avcodec_flush_buffers(m_pCodecContext);
   if (m_doviEnhancement)
+  {
     m_doviEnhancement->Flush();
+    av_frame_unref(m_pDecodedFrame);
+    m_doviHeld = false;
+    m_doviHoldSent.reset();
+  }
   av_frame_unref(m_pFrame);
 
   if (m_pHardware)

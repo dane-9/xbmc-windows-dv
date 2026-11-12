@@ -13,8 +13,10 @@
 #include "cores/VideoPlayer/DVDCodecs/DVDCodecs.h"
 #include "cores/VideoPlayer/DVDStreamInfo.h"
 
+#include <cstdint>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -59,6 +61,7 @@ protected:
   void SetFilters();
   void UpdateName();
   bool SetPictureParams(VideoPicture* pVideoPicture);
+  bool HoldForEnhancement();
 
   bool HasHardware() { return m_pHardware != nullptr; }
   void SetHardware(IHardwareDecoder *hardware);
@@ -106,6 +109,8 @@ protected:
   bool m_exportDoviRpu = false;
   std::map<int64_t, std::vector<uint8_t>> m_av1DoviRpus; // by packet pts
   std::unique_ptr<class CDoviEnhancementDecoder> m_doviEnhancement;
+  bool m_doviHeld = false;
+  std::optional<std::uint64_t> m_doviHoldSent;
 
   struct CDropControl
   {
