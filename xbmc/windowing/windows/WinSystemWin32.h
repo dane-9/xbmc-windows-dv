@@ -116,6 +116,8 @@ public:
   bool IsMinimized() const { return m_bMinimized; }
   void SetMinimized(bool minimized);
   void CacheSystemSdrPeakLuminance();
+  // For a display mode change Kodi didn't make, so its next switch isn't skipped.
+  void SetCurrentRefreshRate(float refreshRate) { m_fRefreshRate = refreshRate; }
 
   void SetSizeMoveMode(bool mode) { m_bSizeMoveEnabled = mode; }
   bool IsInSizeMoveMode() const { return m_bSizeMoveEnabled; }

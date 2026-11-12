@@ -9,6 +9,7 @@
 #include "DolbyVisionOutput.h"
 
 #include "DeviceResources.h"
+#include "RenderContext.h"
 #include "ServiceBroker.h"
 #include "application/ApplicationComponents.h"
 #include "application/ApplicationPlayer.h"
@@ -110,6 +111,8 @@ struct DX::CDolbyVisionOutput::Impl
 
 #ifdef HAVE_NVAPI
   NvU32 displayId{};
+  LUID targetAdapter{};
+  UINT32 targetId{};
   NV_HDR_COLOR_DATA originalHdr{};
   // The output colour to restore when entering changed it.
   std::optional<NV_COLOR_DATA> originalColour;
@@ -757,6 +760,8 @@ bool DX::CDolbyVisionOutput::Enable(const std::wstring& gdiName,
     return false;
   m_impl->initialized = true;
   m_impl->displayId = entry->displayId;
+  m_impl->targetAdapter = entry->target.adapterId;
+  m_impl->targetId = entry->target.id;
   m_impl->originalHdr = entry->hdr;
   const HdmiVicFormat& format = *entry->format;
   if (entry->retainedReplay)
@@ -885,7 +890,18 @@ void DX::CDolbyVisionOutput::Restore()
   }
   // Reverting the HDMI_VIC timing stops the Dolby Vision InfoFrame.
   if (m_impl->hdmiVicTiming)
+  {
     RevertHdmiVicTiming(m_impl->displayId);
+    // Reverting puts back the Windows registry mode, which can differ from the mode Kodi set.
+    const double refresh =
+        GetActiveDisplay(DisplayTarget{m_impl->targetAdapter, m_impl->targetId}).refresh;
+    if (refresh > 0.0 && DX::Windowing())
+    {
+      CLog::Log(LOGDEBUG, "Dolby Vision output: {:.3f} Hz after reverting the HDMI_VIC timing.",
+                refresh);
+      DX::Windowing()->SetCurrentRefreshRate(static_cast<float>(refresh));
+    }
+  }
   m_impl->hdmiVicTiming = false;
   if (m_impl->originalColour)
     RestoreColour(m_impl->displayId, *m_impl->originalColour);
