@@ -19,6 +19,7 @@ cbuffer Params : register(b0)
   uint gBits;
   uint gGuiW;
   uint gGuiH;
+  float gPeak; // GUI white, 1 = 10000 cd/m²
 };
 
 float3 SrgbToLinear(float3 c)
@@ -44,7 +45,7 @@ float4 GuiSample(int x, int y)
   if (s.a <= 0)
     return 0;
   float3 lin = SrgbToLinear(saturate(s.rgb / s.a));
-  float3 pq = LinearToPq(Apply(gToSource, lin) * 0.02);
+  float3 pq = LinearToPq(Apply(gToSource, lin) * gPeak);
   return float4(clamp(4096 * (Apply(gToCodes, pq) + gOffset.xyz), 0, 4095), s.a);
 }
 

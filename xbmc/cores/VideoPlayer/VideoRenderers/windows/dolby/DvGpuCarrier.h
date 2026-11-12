@@ -185,12 +185,14 @@ public:
    * \param gui Kodi's GUI, premultiplied sRGB
    * \param target receives the blended frame; the size of frame
    * \param transform the stream's GUI transform
+   * \param peakNits the luminance of GUI white
    */
   bool CompositeGui(ID3D11Texture2D* frame,
                     std::size_t packetCount,
                     ID3D11Texture2D* gui,
                     ID3D11Texture2D* target,
-                    const DvGuiTransform& transform);
+                    const DvGuiTransform& transform,
+                    float peakNits);
 
 private:
   template<typename T>

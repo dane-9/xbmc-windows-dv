@@ -347,10 +347,10 @@ bool CDoviTunnel::Render(const CRenderBuffer& buffer,
   return true;
 }
 
-bool CDoviTunnel::CompositeGUI(ID3D11Texture2D* gui, ID3D11Texture2D* target)
+bool CDoviTunnel::CompositeGUI(ID3D11Texture2D* gui, ID3D11Texture2D* target, float peakNits)
 {
   if (!m_impl || !m_impl->lastFrame || !m_impl->gui)
     return false;
   return m_impl->carrier.CompositeGui(m_impl->lastFrame.Get(), m_impl->lastPacketCount, gui, target,
-                                      *m_impl->gui);
+                                      *m_impl->gui, peakNits);
 }

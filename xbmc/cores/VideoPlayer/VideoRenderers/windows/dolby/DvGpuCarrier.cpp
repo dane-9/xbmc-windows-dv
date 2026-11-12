@@ -162,6 +162,7 @@ struct GuiParams
   float toCodes[3][4];
   float offset[4];
   std::uint32_t width, bits, guiWidth, guiHeight;
+  float peak, pad[3]; // GUI white on the PQ scale
 };
 
 } // namespace
@@ -859,7 +860,8 @@ bool CDvGpuCarrier::CompositeGui(ID3D11Texture2D* frame,
                                  std::size_t packetCount,
                                  ID3D11Texture2D* gui,
                                  ID3D11Texture2D* target,
-                                 const DvGuiTransform& transform)
+                                 const DvGuiTransform& transform,
+                                 float peakNits)
 {
   const std::optional<TextureSize> size = TargetSize(frame);
   const std::optional<TextureSize> targetSize = TargetSize(target);
@@ -892,6 +894,7 @@ bool CDvGpuCarrier::CompositeGui(ID3D11Texture2D* frame,
   params.bits = static_cast<std::uint32_t>(packetCount * 3 * PACKET_BYTES * 8);
   params.guiWidth = guiDesc.Width;
   params.guiHeight = guiDesc.Height;
+  params.peak = std::clamp(peakNits, 0.0f, 10000.0f) / 10000;
   if (!UpdateConstants(m_guiParams.Get(), params))
   {
     Abandon();

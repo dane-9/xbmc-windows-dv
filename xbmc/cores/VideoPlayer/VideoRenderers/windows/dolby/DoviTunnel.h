@@ -65,10 +65,11 @@ public:
    * \brief Blends Kodi's GUI over the last rendered frame into target, in the
    * frame's source colour space.
    *
+   * \param peakNits the luminance of GUI white
    * \return false when no frame was rendered or its colour space is not
    *         supported for blending
    */
-  bool CompositeGUI(ID3D11Texture2D* gui, ID3D11Texture2D* target);
+  bool CompositeGUI(ID3D11Texture2D* gui, ID3D11Texture2D* target, float peakNits);
 
   /*!
    * \brief Ends playback: logs the playback summary and releases the GPU

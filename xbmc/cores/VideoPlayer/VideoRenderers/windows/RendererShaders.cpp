@@ -345,7 +345,11 @@ bool CRendererShaders::RenderDolbyVisionOutput()
                            DX::CDolbyVisionOutput::IsGuiVisible(),
                            m_doviTunnelSurface))
     output.SetFrame(m_doviTunnelSurface.Get(), [this](ID3D11Texture2D* gui, ID3D11Texture2D* frame)
-                    { return m_doviTunnel && m_doviTunnel->CompositeGUI(gui, frame); });
+                    {
+                      return m_doviTunnel &&
+                             m_doviTunnel->CompositeGUI(gui, frame,
+                                                        DX::Windowing()->GetGuiSdrPeakLuminance());
+                    });
   return true;
 }
 
