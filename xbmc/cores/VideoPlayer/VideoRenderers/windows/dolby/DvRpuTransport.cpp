@@ -465,6 +465,21 @@ std::optional<std::array<std::uint16_t, 4>> Level5Offsets(const std::vector<std:
   return offsets;
 }
 
+bool CDvSceneTracker::Update(double seconds)
+{
+  if (m_last && seconds == *m_last)
+    return m_refresh;
+  m_refresh = !m_last || seconds < *m_last || seconds - *m_last > 1.0;
+  m_last = seconds;
+  return m_refresh;
+}
+
+void SetSceneRefresh(std::vector<std::uint8_t>& bytes)
+{
+  if (bytes.size() > 1)
+    bytes[1] = 1; // after the base block's header byte
+}
+
 std::size_t PacketCount(std::size_t metadataBytes)
 {
   if (metadataBytes <= 119)

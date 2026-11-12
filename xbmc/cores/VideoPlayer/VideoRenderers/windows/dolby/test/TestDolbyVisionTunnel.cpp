@@ -512,3 +512,28 @@ TEST(TestDolbyVisionTunnel, ReadsWhatIsSent)
   for (const double nits : {100.0, 600.0, 1000.0, 4000.0})
     EXPECT_EQ(NitsToPq(PqToNits(NitsToPq(nits))), NitsToPq(nits));
 }
+
+TEST(TestDolbyVisionTunnel, RefreshesTheSceneAfterASeek)
+{
+  CDvSceneTracker scene;
+  EXPECT_TRUE(scene.Update(1.0)); // first picture
+  EXPECT_FALSE(scene.Update(1.0417));
+  EXPECT_FALSE(scene.Update(1.0417)); // repeated while paused
+  EXPECT_TRUE(scene.Update(60.0)); // seek forward
+  EXPECT_TRUE(scene.Update(60.0)); // a repeat keeps the answer
+  EXPECT_FALSE(scene.Update(60.0417));
+  EXPECT_TRUE(scene.Update(30.0)); // seek back
+  EXPECT_FALSE(scene.Update(30.2)); // a dropped picture
+  EXPECT_FALSE(scene.Update(31.2)); // up to a second is no jump
+  EXPECT_TRUE(scene.Update(32.5));
+
+  CBlobBuilder builder;
+  builder.blocks = {Block(1)};
+  builder.color.scene_refresh_flag = 0;
+  const std::vector<std::uint8_t> blob = builder.Build();
+  std::vector<std::uint8_t> bytes =
+      SerializeDisplayMetadata(blob.data(), blob.size()).value().bytes;
+  EXPECT_EQ(bytes[1], 0);
+  SetSceneRefresh(bytes);
+  EXPECT_EQ(bytes[1], 1);
+}

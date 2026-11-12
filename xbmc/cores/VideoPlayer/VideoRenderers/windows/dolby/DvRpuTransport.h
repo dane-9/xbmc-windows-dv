@@ -141,6 +141,32 @@ bool SetLevel5ActiveArea(std::vector<std::uint8_t>& bytes, const DvPlacement* pl
 std::optional<std::array<std::uint16_t, 4>> Level5Offsets(const std::vector<std::uint8_t>& bytes);
 
 /*!
+ * \brief Decides when the display must drop its scene state: on the first
+ * picture and after a jump in time of more than a second (a seek or a chapter
+ * skip, not dropped pictures), where the next scene cut flagged in the
+ * metadata may be far away.
+ */
+class CDvSceneTracker
+{
+public:
+  /*!
+   * \param seconds the picture's presentation time
+   * \return true when the picture's metadata must have scene_refresh_flag set;
+   *         a repeated picture keeps the previous answer
+   */
+  bool Update(double seconds);
+
+private:
+  std::optional<double> m_last;
+  bool m_refresh = false;
+};
+
+/*!
+ * \brief Sets scene_refresh_flag in serialized metadata.
+ */
+void SetSceneRefresh(std::vector<std::uint8_t>& bytes);
+
+/*!
  * \brief Number of packets that carry metadataBytes of metadata.
  */
 std::size_t PacketCount(std::size_t metadataBytes);

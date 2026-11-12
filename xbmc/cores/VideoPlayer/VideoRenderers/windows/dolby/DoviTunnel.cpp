@@ -14,6 +14,7 @@
 #include "DvTunnelStats.h"
 #include "cores/VideoPlayer/DVDCodecs/Video/DVDVideoCodec.h"
 #include "cores/VideoPlayer/DVDCodecs/Video/DXVA.h"
+#include "cores/VideoPlayer/Interface/TimingConstants.h"
 #include "cores/VideoPlayer/VideoRenderers/VideoShaders/ConversionMatrix.h"
 #include "cores/VideoPlayer/VideoRenderers/VideoShaders/ConvolutionKernels.h"
 #include "cores/VideoPlayer/VideoRenderers/windows/RendererBase.h"
@@ -174,6 +175,7 @@ struct CDoviTunnel::Impl
   ESCALINGMETHOD scalingMethod = VS_SCALINGMETHOD_CUBIC_CATMULL;
   DvCmv40Policy cmv40;
   bool loggedCmv40 = false;
+  CDvSceneTracker scene;
   DvTunnelInfo info;
   bool infoElUsed = false;
 
@@ -360,6 +362,8 @@ bool CDoviTunnel::Render(const CRenderBuffer& buffer,
     d.loggedCmv40 = true;
   }
 
+  if (d.scene.Update(buffer.pts / DVD_TIME_BASE))
+    SetSceneRefresh(metadata->bytes);
   const bool metadataChanged = metadata->bytes != d.previousMetadata;
   const bool elUsed = el != nullptr;
   if (metadataChanged || elUsed != d.infoElUsed)
