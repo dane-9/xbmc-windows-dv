@@ -53,7 +53,9 @@ struct DvDisplayMetadata
 {
   std::vector<std::uint8_t> bytes;
   DvColourParams colour;
+  bool cmv40 = false; //!< the source metadata is content mapping v4.0
   bool cmv40Appended = false;
+  unsigned sourceMaxPq = 0; //!< the mastering display's peak, 12-bit PQ
 };
 
 using DvPacket = std::array<std::uint8_t, PACKET_BYTES>;
@@ -84,6 +86,11 @@ struct DvCmv40Policy
  * \brief Converts a luminance in cd/m² to a 12-bit SMPTE ST 2084 code value.
  */
 unsigned NitsToPq(double nits);
+
+/*!
+ * \brief Converts a 12-bit SMPTE ST 2084 code value to a luminance in cd/m².
+ */
+double PqToNits(unsigned pq);
 
 /*!
  * \brief Serializes the display management metadata of a picture.
@@ -126,6 +133,12 @@ struct DvPlacement
  *         canvas
  */
 bool SetLevel5ActiveArea(std::vector<std::uint8_t>& bytes, const DvPlacement* placement);
+
+/*!
+ * \brief The left, right, top and bottom offsets of the level 5 block of
+ * serialized metadata, or empty if it has none.
+ */
+std::optional<std::array<std::uint16_t, 4>> Level5Offsets(const std::vector<std::uint8_t>& bytes);
 
 /*!
  * \brief Number of packets that carry metadataBytes of metadata.

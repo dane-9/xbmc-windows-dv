@@ -189,6 +189,13 @@ bool CWinRenderer::Configure(const VideoPicture &picture, float fps, unsigned in
     m_renderer.reset();
     return false;
   }
+#if defined(TARGET_WINDOWS_DESKTOP)
+  // The pixel shader renderer shows how a Dolby Vision video is sent; with the
+  // others it is not sent.
+  if (picture.hdrType == StreamHdrType::HDR_TYPE_DOLBYVISION &&
+      !dynamic_cast<CRendererShaders*>(m_renderer.get()))
+    CRendererShaders::PublishDolbyVisionRefusal(picture, orientation);
+#endif
 
   m_bConfigured = true;
   return true;

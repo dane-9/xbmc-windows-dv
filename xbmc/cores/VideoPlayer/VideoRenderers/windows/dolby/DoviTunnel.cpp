@@ -17,6 +17,7 @@
 #include "cores/VideoPlayer/VideoRenderers/VideoShaders/ConversionMatrix.h"
 #include "cores/VideoPlayer/VideoRenderers/VideoShaders/ConvolutionKernels.h"
 #include "cores/VideoPlayer/VideoRenderers/windows/RendererBase.h"
+#include "utils/StringUtils.h"
 #include "utils/log.h"
 
 #include <algorithm>
@@ -173,6 +174,40 @@ struct CDoviTunnel::Impl
   ESCALINGMETHOD scalingMethod = VS_SCALINGMETHOD_CUBIC_CATMULL;
   DvCmv40Policy cmv40;
   bool loggedCmv40 = false;
+  DvTunnelInfo info;
+  bool infoElUsed = false;
+
+  void UpdateInfo(const DoviRpu& rpu,
+                  const DvDisplayMetadata& metadata,
+                  bool residual,
+                  bool elUsed,
+                  bool guiVisible)
+  {
+    info.profile = std::to_string(rpu.profile);
+    if (rpu.profile == 8)
+      info.profile += "." + std::to_string(rpu.compatibilityId);
+    else if (rpu.profile == 7)
+      info.profile += !residual ? " MEL" : elUsed ? " FEL (used)" : " FEL (not used)";
+    info.contentMapping = metadata.cmv40           ? "v4.0"
+                          : metadata.cmv40Appended ? "v2.9 sent as v4.0"
+                                                   : "v2.9";
+    // Mastering displays are rated in round figures; PQ codes are not exact.
+    info.master =
+        StringUtils::Format("{} nits", std::lround(PqToNits(metadata.sourceMaxPq) / 10) * 10);
+    if (guiVisible)
+      return;
+    const auto offsets = Level5Offsets(metadata.bytes).value_or(std::array<std::uint16_t, 4>{});
+    static constexpr const char* SIDES[] = {"left", "right", "top", "bottom"};
+    info.activeArea.clear();
+    for (int i = 0; i < 4; ++i)
+    {
+      if (offsets[i])
+        info.activeArea += StringUtils::Format("{}{} {}", info.activeArea.empty() ? "" : ", ",
+                                               SIDES[i], offsets[i]);
+    }
+    if (info.activeArea.empty())
+      info.activeArea = "full picture";
+  }
 };
 
 CDoviTunnel::CDoviTunnel() = default;
@@ -230,6 +265,11 @@ void CDoviTunnel::SetScalingMethod(ESCALINGMETHOD method)
               static_cast<int>(method));
 }
 
+DvTunnelInfo CDoviTunnel::Info() const
+{
+  return m_impl ? m_impl->info : DvTunnelInfo{};
+}
+
 void CDoviTunnel::SetCmv40Append(const DvCmv40Policy& policy)
 {
   if (m_impl)
@@ -272,6 +312,7 @@ bool CDoviTunnel::Render(const CRenderBuffer& buffer,
   // else is composed at the picture's size and resampled into place.
   std::optional<DvMapping> mapping = ReadSingleLayerMapping(blob, blobSize);
   const bool reshape = mapping.has_value();
+  bool residual = false;
   const bool scaled = pictureWidth != width || pictureHeight != height ||
                       (!reshape && (width != canvasWidth || height != canvasHeight));
   if (reshape)
@@ -287,7 +328,7 @@ bool CDoviTunnel::Render(const CRenderBuffer& buffer,
     if (!mapping)
       return d.Skip(DvSkip::METADATA_UNREADABLE);
     d.mapping = *mapping;
-    const bool residual = d.mapping.residual;
+    residual = d.mapping.residual;
     if (residual && rpu->profile != 7)
       return d.Skip(DvSkip::ENHANCEMENT_OUTSIDE_PROFILE7);
     if (residual)
@@ -318,9 +359,17 @@ bool CDoviTunnel::Render(const CRenderBuffer& buffer,
     CLog::Log(LOGINFO, "Dolby Vision tunnel: sending content mapping v2.9 as v4.0.");
     d.loggedCmv40 = true;
   }
+
+  const bool metadataChanged = metadata->bytes != d.previousMetadata;
+  const bool elUsed = el != nullptr;
+  if (metadataChanged || elUsed != d.infoElUsed)
+  {
+    d.UpdateInfo(*rpu, *metadata, residual, elUsed, guiVisible);
+    d.infoElUsed = elUsed;
+  }
   // As other Dolby Vision sources do, change the metadata ID with the metadata;
   // a display may take changed metadata only with a new ID.
-  if (!d.previousMetadata.empty() && metadata->bytes != d.previousMetadata)
+  if (!d.previousMetadata.empty() && metadataChanged)
     d.metadataId = (d.metadataId + 1) & 15;
   d.previousMetadata = metadata->bytes;
   std::optional<std::vector<DvPacket>> packets = Packetize(metadata->bytes, d.metadataId);

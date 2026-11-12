@@ -14,6 +14,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <string>
 
 class CRenderBuffer;
 
@@ -36,6 +37,19 @@ bool IsDolbyVisionTunnelMetadata(const void* metadata,
  * or MMR chroma prediction.
  */
 bool DolbyVisionMetadataNeedsComposer(const void* metadata, std::size_t metadataSize);
+
+/*!
+ * \brief What the tunnel sends, for the player info dialog.
+ */
+struct DvTunnelInfo
+{
+  std::string profile; //!< e.g. "8.1" or "7 FEL (used)"
+  std::string contentMapping; //!< "v2.9", "v4.0" or "v2.9 sent as v4.0"
+  std::string master; //!< the mastering display's peak
+  std::string activeArea; //!< level 5 as sent while no GUI is visible
+
+  bool operator==(const DvTunnelInfo&) const = default;
+};
 
 /*!
  * \brief Packs Dolby Vision pictures and their metadata into 8-bit carrier
@@ -86,6 +100,11 @@ public:
    * \brief Sets when content mapping v2.9 metadata is sent as v4.0.
    */
   void SetCmv40Append(const DVTUNNEL::DvCmv40Policy& policy);
+
+  /*!
+   * \brief What the last rendered picture was sent with.
+   */
+  DvTunnelInfo Info() const;
 
   /*!
    * \brief Renders one picture into a carrier frame.

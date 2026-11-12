@@ -117,6 +117,7 @@ struct DX::CDolbyVisionOutput::Impl
   bool hdmiVicTiming{};
 #endif
   bool active{};
+  std::string mode;
 };
 
 namespace
@@ -833,8 +834,9 @@ bool DX::CDolbyVisionOutput::Enable(const std::wstring& gdiName,
     Restore();
     return false;
   }
-  CLog::Log(LOGINFO, "Dolby Vision output: entered at {}x{} {:.3f} Hz.", format.width,
-            format.height, static_cast<double>(numerator) / denominator);
+  m_impl->mode = StringUtils::Format("{}x{} {:.3f} Hz", format.width, format.height,
+                                     static_cast<double>(numerator) / denominator);
+  CLog::Log(LOGINFO, "Dolby Vision output: entered at {}.", m_impl->mode);
   return true;
 #else
   CLog::Log(LOGWARNING, "Dolby Vision output: this build has no NVAPI support.");
@@ -905,6 +907,31 @@ std::optional<int> DX::CDolbyVisionOutput::RunExitHelper()
 bool DX::CDolbyVisionOutput::IsActive() const
 {
   return m_impl->active;
+}
+
+std::string DX::CDolbyVisionOutput::ActiveMode() const
+{
+  return m_impl->active ? m_impl->mode : std::string{};
+}
+
+bool DX::CDolbyVisionOutput::SwitchedColour() const
+{
+#ifdef HAVE_NVAPI
+  return m_impl->active && m_impl->originalColour.has_value();
+#else
+  return false;
+#endif
+}
+
+std::string DX::CDolbyVisionOutput::LastRefusal()
+{
+#ifdef HAVE_NVAPI
+  std::unique_lock guard(refusalLock);
+  // Without the log message's full stop.
+  return lastRefusal.ends_with('.') ? lastRefusal.substr(0, lastRefusal.size() - 1) : lastRefusal;
+#else
+  return "this build has no NVAPI support";
+#endif
 }
 
 void DX::CDolbyVisionOutput::RemoveLeftoverOutput(const std::wstring& gdiName)

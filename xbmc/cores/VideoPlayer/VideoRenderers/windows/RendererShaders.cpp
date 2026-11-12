@@ -25,12 +25,14 @@
 #if !defined(_M_ARM) && !defined(_M_ARM64)
 #include "utils/gpu_memcpy_sse4.h"
 #endif
+#include "utils/StringUtils.h"
 #include "utils/log.h"
 #include "utils/memcpy_sse2.h"
 #include "windowing/GraphicContext.h"
 
 #include <algorithm>
 #include <cmath>
+#include <vector>
 
 #include <ppl.h>
 
@@ -162,6 +164,61 @@ void CRendererShaders::ReleaseDoviTunnel()
   m_doviTunnel.reset();
   m_doviTunnelSurface.Release();
 }
+
+std::string CRendererShaders::DolbyVisionRefusal(const VideoPicture& picture, unsigned orientation)
+{
+  if (!DX::CDolbyVisionOutput::IsAllowedBySettings())
+    return "\"Send Dolby Vision to the display\" is off";
+  if (orientation != 0)
+    return "the video is rotated";
+  if (!picture.videoBuffer || picture.videoBuffer->GetFormat() != AV_PIX_FMT_D3D11VA_VLD ||
+      GetDXGIFormat(picture) != DXGI_FORMAT_P010)
+    return "needs hardware decoding";
+  const DoviRpu* rpu = picture.doviRpu.get();
+  if (!rpu)
+    return "no Dolby Vision metadata";
+  if (!IsDolbyVisionTunnelMetadata(rpu->metadata.data(), rpu->metadata.size(), rpu->profile,
+                                   rpu->compatibilityId))
+    return StringUtils::Format("profile {} or its metadata is not supported", rpu->profile);
+  const std::string reason = DX::CDolbyVisionOutput::LastRefusal();
+  return reason.empty() ? "the display does not support it" : reason;
+}
+
+void CRendererShaders::PublishDolbyVisionRefusal(const VideoPicture& picture, unsigned orientation)
+{
+  CDataCacheCore::DolbyVisionInfo info;
+  info.output = "not sent: " + DolbyVisionRefusal(picture, orientation);
+  CServiceBroker::GetDataCacheCore().SetVideoDolbyVision(std::move(info));
+}
+
+void CRendererShaders::PublishDolbyVisionInfo(CDataCacheCore::DolbyVisionInfo info)
+{
+  if (info == m_dolbyVisionInfo)
+    return;
+  m_dolbyVisionInfo = info;
+  CServiceBroker::GetDataCacheCore().SetVideoDolbyVision(std::move(info));
+}
+
+void CRendererShaders::PublishDolbyVisionOutput()
+{
+  const DX::CDolbyVisionOutput& output = DX::DeviceResources::Get()->GetDolbyVisionOutput();
+  const DvTunnelInfo tunnel = m_doviTunnel->Info();
+  CDataCacheCore::DolbyVisionInfo info;
+  info.output = output.IsActive() ? "TV-led" : "starting";
+  info.profile = tunnel.profile;
+  info.contentMapping = tunnel.contentMapping;
+  info.master = tunnel.master;
+  info.activeArea = tunnel.activeArea;
+  info.mode = output.ActiveMode();
+  info.displayPeak = m_displayPeak;
+  std::vector<std::string> changes;
+  if (m_AutoSwitchHDR && m_initialHdrEnabled)
+    changes.emplace_back("Windows HDR off");
+  if (output.SwitchedColour())
+    changes.emplace_back("8 bpc RGB");
+  info.changes = changes.empty() ? "none" : StringUtils::Join(changes, ", ");
+  PublishDolbyVisionInfo(std::move(info));
+}
 #endif
 
 CRendererShaders::CRendererShaders(CVideoSettings& videoSettings) : CRendererHQ(videoSettings)
@@ -188,8 +245,10 @@ bool CRendererShaders::Configure(const VideoPicture& picture, float fps, unsigne
 {
 #if defined(TARGET_WINDOWS_DESKTOP)
   // decided before the base class switches Windows HDR, which the Dolby Vision output leaves off
-  bool tunnelCandidate = picture.videoBuffer && orientation == 0 &&
-                         IsDolbyVisionOutputPicture(picture, picture.videoBuffer->GetFormat(), fps);
+  const bool outputPicture =
+      picture.videoBuffer && orientation == 0 &&
+      IsDolbyVisionOutputPicture(picture, picture.videoBuffer->GetFormat(), fps);
+  bool tunnelCandidate = outputPicture;
   if (tunnelCandidate)
   {
     const DX::CDolbyVisionOutput::OutputMode mode =
@@ -208,10 +267,20 @@ bool CRendererShaders::Configure(const VideoPicture& picture, float fps, unsigne
   m_doviTunnelCandidate = tunnelCandidate;
   DX::DeviceResources::Get()->GetDolbyVisionOutput().SetCandidate(tunnelCandidate, fps,
                                                                   picture.iWidth, picture.iHeight);
+  CDataCacheCore::DolbyVisionInfo info;
+  if (picture.hdrType == StreamHdrType::HDR_TYPE_DOLBYVISION && !tunnelCandidate)
+    info.output = "not sent: " + (outputPicture ? "the Dolby Vision renderer could not start"
+                                                : DolbyVisionRefusal(picture, orientation));
+  PublishDolbyVisionInfo(std::move(info));
+  m_displayPeak.clear();
   if (tunnelCandidate)
   {
     CLog::Log(LOGINFO, "Dolby Vision tunnel: renderer armed for Profile {} at {}x{} {:.3f} fps",
               picture.doviRpu->profile, picture.iWidth, picture.iHeight, fps);
+    const std::optional<unsigned> displayPeakPq =
+        DX::DeviceResources::Get()->GetDolbyVisionOutput().DisplayPeakPq();
+    if (displayPeakPq)
+      m_displayPeak = StringUtils::Format("{:.0f} nits", DVTUNNEL::PqToNits(*displayPeakPq));
     const auto settings = CServiceBroker::GetSettingsComponent()->GetSettings();
     DVTUNNEL::DvCmv40Policy cmv40;
     cmv40.append = std::clamp(static_cast<DVTUNNEL::DvCmv40Append>(
@@ -225,8 +294,7 @@ bool CRendererShaders::Configure(const VideoPicture& picture, float fps, unsigne
       if (triggerNits > 0)
         cmv40.maxSourcePq = DVTUNNEL::NitsToPq(triggerNits);
       else
-        cmv40.maxSourcePq =
-            DX::DeviceResources::Get()->GetDolbyVisionOutput().DisplayPeakPq().value_or(0);
+        cmv40.maxSourcePq = displayPeakPq.value_or(0);
     }
     m_doviTunnel->SetCmv40Append(cmv40);
   }
@@ -329,6 +397,10 @@ bool CRendererShaders::RenderDolbyVisionOutput()
                           "Kodi's regular renderer.");
     m_doviTunnelCandidate = false;
     ReleaseDoviTunnel();
+    const std::string reason = DX::CDolbyVisionOutput::LastRefusal();
+    CDataCacheCore::DolbyVisionInfo info;
+    info.output = "not sent: " + (reason.empty() ? "the display refused it" : reason);
+    PublishDolbyVisionInfo(std::move(info));
     return false;
   }
 
@@ -344,12 +416,15 @@ bool CRendererShaders::RenderDolbyVisionOutput()
   if (m_doviTunnel->Render(*buf, m_sourceWidth, m_sourceHeight, decoded.Get(), slice,
                            DX::CDolbyVisionOutput::IsGuiVisible(),
                            m_doviTunnelSurface))
+  {
+    PublishDolbyVisionOutput();
     output.SetFrame(m_doviTunnelSurface.Get(), [this](ID3D11Texture2D* gui, ID3D11Texture2D* frame)
                     {
                       return m_doviTunnel &&
                              m_doviTunnel->CompositeGUI(gui, frame,
                                                         DX::Windowing()->GetGuiSdrPeakLuminance());
                     });
+  }
   return true;
 }
 

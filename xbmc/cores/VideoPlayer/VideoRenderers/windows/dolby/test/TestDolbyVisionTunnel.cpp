@@ -12,6 +12,7 @@
 #include "cores/VideoPlayer/VideoRenderers/windows/dolby/DvRpuTransport.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -487,4 +488,27 @@ TEST(TestDolbyVisionTunnel, SendsContentMappingV29AsV40)
   level254.l254.dm_version_index = 2;
   const std::vector<AVDOVIDmData> cm40 = {Block(1), level254};
   EXPECT_EQ(serialize(cm40, DvCmv40Append::ALWAYS), serialize(cm40, DvCmv40Append::OFF));
+}
+
+TEST(TestDolbyVisionTunnel, ReadsWhatIsSent)
+{
+  CBlobBuilder builder;
+  AVDOVIDmData level5 = Block(5);
+  level5.l5 = {0, 0, 280, 276};
+  builder.blocks = {Block(1), level5};
+  std::vector<std::uint8_t> blob = builder.Build();
+  const std::vector<std::uint8_t> bytes =
+      SerializeDisplayMetadata(blob.data(), blob.size()).value().bytes;
+  EXPECT_EQ(Level5Offsets(bytes), (std::array<std::uint16_t, 4>{0, 0, 280, 276}));
+
+  builder.blocks = {Block(1)};
+  blob = builder.Build();
+  EXPECT_FALSE(Level5Offsets(SerializeDisplayMetadata(blob.data(), blob.size()).value().bytes));
+
+  EXPECT_NEAR(PqToNits(3079), 1000, 1);
+  EXPECT_NEAR(PqToNits(2965), 775, 1);
+  EXPECT_EQ(PqToNits(0), 0);
+  EXPECT_NEAR(PqToNits(4095), 10000, 0.01);
+  for (const double nits : {100.0, 600.0, 1000.0, 4000.0})
+    EXPECT_EQ(NitsToPq(PqToNits(NitsToPq(nits))), NitsToPq(nits));
 }

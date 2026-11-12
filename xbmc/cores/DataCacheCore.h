@@ -54,6 +54,26 @@ public:
   int GetVideoQueueDataLevel();
 
   /*!
+   * @brief How a Dolby Vision video is sent to the display, for the player info
+   * dialog. Empty for other videos.
+   */
+  struct DolbyVisionInfo
+  {
+    std::string output;
+    std::string profile;
+    std::string contentMapping;
+    std::string master;
+    std::string activeArea;
+    std::string mode;
+    std::string displayPeak;
+    std::string changes;
+
+    bool operator==(const DolbyVisionInfo&) const = default;
+  };
+  void SetVideoDolbyVision(DolbyVisionInfo info);
+  DolbyVisionInfo GetVideoDolbyVision();
+
+  /*!
    * @brief Set if the video is interlaced in cache.
    * @param isInterlaced Set true when the video is interlaced
    */
@@ -243,6 +263,7 @@ protected:
     int liveBitRate;
     int queueLevel;
     int queueDataLevel;
+    DolbyVisionInfo dolbyVision;
   } m_playerVideoInfo;
 
   CCriticalSection m_audioPlayerSection;

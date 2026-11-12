@@ -363,6 +363,30 @@ bool CPlayerGUIInfo::GetLabel(std::string& value,
     case PLAYER_PROCESS_SUBTITLEDECODER:
       value = CServiceBroker::GetDataCacheCore().GetSubtitleDecoderName();
       return true;
+    case PLAYER_PROCESS_DOLBYVISION_OUTPUT:
+      value = CServiceBroker::GetDataCacheCore().GetVideoDolbyVision().output;
+      return true;
+    case PLAYER_PROCESS_DOLBYVISION_PROFILE:
+      value = CServiceBroker::GetDataCacheCore().GetVideoDolbyVision().profile;
+      return true;
+    case PLAYER_PROCESS_DOLBYVISION_CONTENT_MAPPING:
+      value = CServiceBroker::GetDataCacheCore().GetVideoDolbyVision().contentMapping;
+      return true;
+    case PLAYER_PROCESS_DOLBYVISION_MASTER:
+      value = CServiceBroker::GetDataCacheCore().GetVideoDolbyVision().master;
+      return true;
+    case PLAYER_PROCESS_DOLBYVISION_ACTIVE_AREA:
+      value = CServiceBroker::GetDataCacheCore().GetVideoDolbyVision().activeArea;
+      return true;
+    case PLAYER_PROCESS_DOLBYVISION_MODE:
+      value = CServiceBroker::GetDataCacheCore().GetVideoDolbyVision().mode;
+      return true;
+    case PLAYER_PROCESS_DOLBYVISION_DISPLAY_PEAK:
+      value = CServiceBroker::GetDataCacheCore().GetVideoDolbyVision().displayPeak;
+      return true;
+    case PLAYER_PROCESS_DOLBYVISION_CHANGES:
+      value = CServiceBroker::GetDataCacheCore().GetVideoDolbyVision().changes;
+      return true;
     case PLAYER_PROCESS_AUDIO_LIVE_BITRATE:
       value = StringUtils::FormatNumber(CServiceBroker::GetDataCacheCore().GetAudioLiveBitRate() /
                                         1024);

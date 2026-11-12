@@ -8,9 +8,11 @@
 #pragma once
 
 #include "RendererHQ.h"
+#include "cores/DataCacheCore.h"
 #include "cores/VideoPlayer/Buffers/VideoBuffer.h"
 
 #include <map>
+#include <string>
 
 #include <d3d11_4.h>
 
@@ -44,6 +46,9 @@ public:
    * works only in this renderer.
    */
   static bool WantsDolbyVisionOutput(const VideoPicture& picture);
+  // shows in the player info dialog why a Dolby Vision picture that another renderer took is
+  // not sent as Dolby Vision
+  static void PublishDolbyVisionRefusal(const VideoPicture& picture, unsigned orientation);
 #endif
 
 protected:
@@ -73,10 +78,15 @@ private:
   // false when the output was refused and the picture is rendered normally
   bool RenderDolbyVisionOutput();
   void ReleaseDoviTunnel();
+  static std::string DolbyVisionRefusal(const VideoPicture& picture, unsigned orientation);
+  void PublishDolbyVisionInfo(CDataCacheCore::DolbyVisionInfo info);
+  void PublishDolbyVisionOutput();
 
   std::unique_ptr<class CDoviTunnel> m_doviTunnel;
   CD3DTexture m_doviTunnelSurface; // the carrier frame
   bool m_doviTunnelCandidate = false;
+  std::string m_displayPeak; // read when the tunnel is armed
+  CDataCacheCore::DolbyVisionInfo m_dolbyVisionInfo;
 #endif
 #if defined(TARGET_WINDOWS_STORE)
   bool RenderDolbyVision(CD3DTexture& target, CRenderBuffer* buf);

@@ -1004,3 +1004,57 @@ msgstr ""
 msgctxt "#31615"
 msgid "Subtitle language"
 msgstr ""
+
+#: /xml/DialogPlayerProcessInfo.xml
+#. Tab of the player info dialog for Dolby Vision output
+msgctxt "#31616"
+msgid "Dolby Vision"
+msgstr ""
+
+#: /xml/DialogPlayerProcessInfo.xml
+#. Label to show how Dolby Vision is sent
+msgctxt "#31617"
+msgid "Output"
+msgstr ""
+
+#: /xml/DialogPlayerProcessInfo.xml
+#. Label to show the Dolby Vision profile
+msgctxt "#31618"
+msgid "Profile"
+msgstr ""
+
+#: /xml/DialogPlayerProcessInfo.xml
+#. Label to show the Dolby Vision content mapping version
+msgctxt "#31619"
+msgid "Content mapping"
+msgstr ""
+
+#: /xml/DialogPlayerProcessInfo.xml
+#. Label to show the peak of the Dolby Vision mastering display
+msgctxt "#31620"
+msgid "Mastering display"
+msgstr ""
+
+#: /xml/DialogPlayerProcessInfo.xml
+#. Label to show the Dolby Vision output resolution and refresh rate
+msgctxt "#31621"
+msgid "Output mode"
+msgstr ""
+
+#: /xml/DialogPlayerProcessInfo.xml
+#. Label to show the display's Dolby Vision peak luminance
+msgctxt "#31622"
+msgid "Display peak"
+msgstr ""
+
+#: /xml/DialogPlayerProcessInfo.xml
+#. Label to show the Dolby Vision active area (level 5)
+msgctxt "#31623"
+msgid "Active area"
+msgstr ""
+
+#: /xml/DialogPlayerProcessInfo.xml
+#. Label to show what Kodi changed for Dolby Vision output
+msgctxt "#31624"
+msgid "Changed for Dolby Vision"
+msgstr ""

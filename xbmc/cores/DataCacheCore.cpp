@@ -131,6 +131,20 @@ std::string CDataCacheCore::GetVideoPixelFormat()
   return m_playerVideoInfo.pixFormat;
 }
 
+void CDataCacheCore::SetVideoDolbyVision(DolbyVisionInfo info)
+{
+  std::unique_lock lock(m_videoPlayerSection);
+
+  m_playerVideoInfo.dolbyVision = std::move(info);
+}
+
+CDataCacheCore::DolbyVisionInfo CDataCacheCore::GetVideoDolbyVision()
+{
+  std::unique_lock lock(m_videoPlayerSection);
+
+  return m_playerVideoInfo.dolbyVision;
+}
+
 void CDataCacheCore::SetVideoStereoMode(std::string mode)
 {
   std::unique_lock lock(m_videoPlayerSection);

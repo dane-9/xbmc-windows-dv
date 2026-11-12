@@ -71,6 +71,22 @@ public:
   bool IsActive() const;
 
   /*!
+   * \brief The resolution and refresh rate of the active output, for example
+   * "3840x2160 23.976 Hz", or empty while inactive.
+   */
+  std::string ActiveMode() const;
+
+  /*!
+   * \brief True while the output colour is switched to 8 bpc RGB for the output.
+   */
+  bool SwitchedColour() const;
+
+  /*!
+   * \brief Why the last entry check refused the output, or empty.
+   */
+  static std::string LastRefusal();
+
+  /*!
    * \brief Sets the carrier frame to present next.
    *
    * \param frame the packed carrier frame

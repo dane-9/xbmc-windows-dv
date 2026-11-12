@@ -225,17 +225,64 @@ bool BuildPayload(const AVDOVIDmData& dm, std::vector<std::uint8_t>& payload)
   }
 }
 
+// SMPTE ST 2084 constants.
+constexpr double PQ_M1 = 2610.0 / 16384;
+constexpr double PQ_M2 = 2523.0 / 4096 * 128;
+constexpr double PQ_C1 = 3424.0 / 4096;
+constexpr double PQ_C2 = 2413.0 / 4096 * 32;
+constexpr double PQ_C3 = 2392.0 / 4096 * 32;
+
+struct BlockLayout
+{
+  std::optional<std::size_t> level5; //!< offset of the level 5 payload
+  std::size_t insertAt = 0; //!< where a missing level 5 block goes; 0 is the end
+};
+
+// Walks the extension blocks of serialized metadata.
+std::optional<BlockLayout> ReadBlockLayout(const std::vector<std::uint8_t>& bytes)
+{
+  if (bytes.size() < BASE_BLOCK_BYTES)
+    return {};
+  const unsigned count = bytes[BASE_BLOCK_BYTES - 1];
+  std::size_t pos = BASE_BLOCK_BYTES;
+  BlockLayout layout;
+  for (unsigned i = 0; i < count; ++i)
+  {
+    if (bytes.size() - pos < 5)
+      return {};
+    const std::size_t length = (std::size_t{bytes[pos]} << 24) |
+                               (std::size_t{bytes[pos + 1]} << 16) |
+                               (std::size_t{bytes[pos + 2]} << 8) | bytes[pos + 3];
+    const std::uint8_t level = bytes[pos + 4];
+    // Blocks are in RPU order, so a missing level 5 block goes after levels 1,
+    // 2 and 4.
+    if (!layout.insertAt && level != 1 && level != 2 && level != 4)
+      layout.insertAt = pos;
+    pos += 5;
+    if (length > bytes.size() - pos || (level == 5 && (length != 8 || layout.level5)))
+      return {};
+    if (level == 5)
+      layout.level5 = pos;
+    pos += length;
+  }
+  if (pos != bytes.size())
+    return {};
+  return layout;
+}
+
 } // namespace
 
 unsigned NitsToPq(double nits)
 {
-  constexpr double m1 = 2610.0 / 16384;
-  constexpr double m2 = 2523.0 / 4096 * 128;
-  constexpr double c1 = 3424.0 / 4096;
-  constexpr double c2 = 2413.0 / 4096 * 32;
-  constexpr double c3 = 2392.0 / 4096 * 32;
-  const double y = std::pow(std::clamp(nits / 10000, 0.0, 1.0), m1);
-  return static_cast<unsigned>(std::lround(std::pow((c1 + c2 * y) / (1 + c3 * y), m2) * 4095));
+  const double y = std::pow(std::clamp(nits / 10000, 0.0, 1.0), PQ_M1);
+  return static_cast<unsigned>(
+      std::lround(std::pow((PQ_C1 + PQ_C2 * y) / (1 + PQ_C3 * y), PQ_M2) * 4095));
+}
+
+double PqToNits(unsigned pq)
+{
+  const double e = std::pow(std::min(pq, 4095u) / 4095.0, 1 / PQ_M2);
+  return 10000 * std::pow(std::max(e - PQ_C1, 0.0) / (PQ_C2 - PQ_C3 * e), 1 / PQ_M1);
 }
 
 std::optional<DvDisplayMetadata> SerializeDisplayMetadata(const void* blobData,
@@ -286,6 +333,8 @@ std::optional<DvDisplayMetadata> SerializeDisplayMetadata(const void* blobData,
   };
   // Level 254 marks v4.0 metadata. The added levels are those of dovi_tool's
   // safe defaults: no L1 offsets, DCI-P3 D65 mastering, cinema content.
+  out.cmv40 = hasLevel(254);
+  out.sourceMaxPq = colour->source_max_pq;
   const DvCmv40Append mode = cmv40.append;
   const bool append =
       mode == DvCmv40Append::ALWAYS ||
@@ -346,33 +395,10 @@ std::optional<DvDisplayMetadata> SerializeDisplayMetadata(const void* blobData,
 
 bool SetLevel5ActiveArea(std::vector<std::uint8_t>& bytes, const DvPlacement* placement)
 {
-  if (bytes.size() < BASE_BLOCK_BYTES)
+  const std::optional<BlockLayout> layout = ReadBlockLayout(bytes);
+  if (!layout)
     return false;
-  const unsigned count = bytes[BASE_BLOCK_BYTES - 1];
-  std::size_t pos = BASE_BLOCK_BYTES;
-  std::optional<std::size_t> level5;
-  // Blocks are in RPU order, so a missing level 5 block goes after levels 1, 2
-  // and 4.
-  std::size_t insertAt = 0;
-  for (unsigned i = 0; i < count; ++i)
-  {
-    if (bytes.size() - pos < 5)
-      return false;
-    const std::size_t length = (std::size_t{bytes[pos]} << 24) |
-                               (std::size_t{bytes[pos + 1]} << 16) |
-                               (std::size_t{bytes[pos + 2]} << 8) | bytes[pos + 3];
-    const std::uint8_t level = bytes[pos + 4];
-    if (!insertAt && level != 1 && level != 2 && level != 4)
-      insertAt = pos;
-    pos += 5;
-    if (length > bytes.size() - pos || (level == 5 && (length != 8 || level5)))
-      return false;
-    if (level == 5)
-      level5 = pos;
-    pos += length;
-  }
-  if (pos != bytes.size())
-    return false;
+  const std::optional<std::size_t>& level5 = layout->level5;
 
   std::uint16_t offsets[4] = {}; // left, right, top, bottom
   if (placement)
@@ -416,14 +442,27 @@ bool SetLevel5ActiveArea(std::vector<std::uint8_t>& bytes, const DvPlacement* pl
   }
   if (!placement)
     return true;
+  const unsigned count = bytes[BASE_BLOCK_BYTES - 1];
   if (count >= AV_DOVI_MAX_EXT_BLOCKS || bytes.size() + 13 > MAX_METADATA_BYTES)
     return false;
   const std::uint8_t block[13] = {0, 0, 0, 8, 5, payload[0], payload[1], payload[2],
                                   payload[3], payload[4], payload[5], payload[6], payload[7]};
-  bytes.insert(bytes.begin() + (insertAt ? insertAt : bytes.size()), std::begin(block),
+  bytes.insert(bytes.begin() + (layout->insertAt ? layout->insertAt : bytes.size()), std::begin(block),
                std::end(block));
   bytes[BASE_BLOCK_BYTES - 1] = static_cast<std::uint8_t>(count + 1);
   return true;
+}
+
+std::optional<std::array<std::uint16_t, 4>> Level5Offsets(const std::vector<std::uint8_t>& bytes)
+{
+  const std::optional<BlockLayout> layout = ReadBlockLayout(bytes);
+  if (!layout || !layout->level5)
+    return {};
+  const std::size_t pos = *layout->level5;
+  std::array<std::uint16_t, 4> offsets;
+  for (int k = 0; k < 4; ++k)
+    offsets[k] = static_cast<std::uint16_t>((bytes[pos + k * 2] << 8) | bytes[pos + k * 2 + 1]);
+  return offsets;
 }
 
 std::size_t PacketCount(std::size_t metadataBytes)

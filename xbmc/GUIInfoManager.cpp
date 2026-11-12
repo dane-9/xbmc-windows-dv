@@ -1229,11 +1229,82 @@ constexpr std::array<InfoMap, 11> player_times = {{
 ///     @skinning_v22 **[New Infolabel]** \link Player_Process_subtitledecoder `Player.Process(subtitledecoder)`\endlink
 ///     <p>
 ///   }
+///   \table_row3{   <b>`Player.Process(dolbyvisionoutput)`</b>,
+///                  \anchor Player_Process_dolbyvisionoutput
+///                  _string_,
+///     @return How a Dolby Vision video is sent to the display\, for example TV-led\, or why it
+///             is not sent. Empty for other videos and where Kodi does not send Dolby Vision.
+///     <p><hr>
+///     @skinning_v22 **[New Infolabel]** \link Player_Process_dolbyvisionoutput `Player.Process(dolbyvisionoutput)`\endlink
+///     <p>
+///   }
+///   \table_row3{   <b>`Player.Process(dolbyvisionprofile)`</b>,
+///                  \anchor Player_Process_dolbyvisionprofile
+///                  _string_,
+///     @return The Dolby Vision profile sent\, for example 8.1\, and for profile 7 the
+///             enhancement layer and whether it is used\, for example 7 FEL (used).
+///     <p><hr>
+///     @skinning_v22 **[New Infolabel]** \link Player_Process_dolbyvisionprofile `Player.Process(dolbyvisionprofile)`\endlink
+///     <p>
+///   }
+///   \table_row3{   <b>`Player.Process(dolbyvisioncontentmapping)`</b>,
+///                  \anchor Player_Process_dolbyvisioncontentmapping
+///                  _string_,
+///     @return The content mapping version of the Dolby Vision metadata sent: v2.9\, v4.0
+///             or v2.9 sent as v4.0.
+///     <p><hr>
+///     @skinning_v22 **[New Infolabel]** \link Player_Process_dolbyvisioncontentmapping `Player.Process(dolbyvisioncontentmapping)`\endlink
+///     <p>
+///   }
+///   \table_row3{   <b>`Player.Process(dolbyvisionmaster)`</b>,
+///                  \anchor Player_Process_dolbyvisionmaster
+///                  _string_,
+///     @return The peak luminance of the display the Dolby Vision video was mastered on\, for
+///             example 1000 nits.
+///     <p><hr>
+///     @skinning_v22 **[New Infolabel]** \link Player_Process_dolbyvisionmaster `Player.Process(dolbyvisionmaster)`\endlink
+///     <p>
+///   }
+///   \table_row3{   <b>`Player.Process(dolbyvisionactivearea)`</b>,
+///                  \anchor Player_Process_dolbyvisionactivearea
+///                  _string_,
+///     @return The active area (level 5) sent while no GUI is visible\, for example
+///             top 276\, bottom 276.
+///     <p><hr>
+///     @skinning_v22 **[New Infolabel]** \link Player_Process_dolbyvisionactivearea `Player.Process(dolbyvisionactivearea)`\endlink
+///     <p>
+///   }
+///   \table_row3{   <b>`Player.Process(dolbyvisionmode)`</b>,
+///                  \anchor Player_Process_dolbyvisionmode
+///                  _string_,
+///     @return The output resolution and refresh rate of Dolby Vision output\, for example
+///             3840x2160 23.976 Hz.
+///     <p><hr>
+///     @skinning_v22 **[New Infolabel]** \link Player_Process_dolbyvisionmode `Player.Process(dolbyvisionmode)`\endlink
+///     <p>
+///   }
+///   \table_row3{   <b>`Player.Process(dolbyvisiondisplaypeak)`</b>,
+///                  \anchor Player_Process_dolbyvisiondisplaypeak
+///                  _string_,
+///     @return The peak luminance the display reports for Dolby Vision\, for example 790 nits.
+///     <p><hr>
+///     @skinning_v22 **[New Infolabel]** \link Player_Process_dolbyvisiondisplaypeak `Player.Process(dolbyvisiondisplaypeak)`\endlink
+///     <p>
+///   }
+///   \table_row3{   <b>`Player.Process(dolbyvisionchanges)`</b>,
+///                  \anchor Player_Process_dolbyvisionchanges
+///                  _string_,
+///     @return What Kodi changed for Dolby Vision output and restores afterwards\, for example
+///             Windows HDR off.
+///     <p><hr>
+///     @skinning_v22 **[New Infolabel]** \link Player_Process_dolbyvisionchanges `Player.Process(dolbyvisionchanges)`\endlink
+///     <p>
+///   }
 /// \table_end
 ///
 /// -----------------------------------------------------------------------------
 // clang-format off
-constexpr std::array<InfoMap, 20> player_process = {{
+constexpr std::array<InfoMap, 28> player_process = {{
     {"videodecoder",        PLAYER_PROCESS_VIDEODECODER},
     {"deintmethod",         PLAYER_PROCESS_DEINTMETHOD},
     {"pixformat",           PLAYER_PROCESS_PIXELFORMAT},
@@ -1254,6 +1325,14 @@ constexpr std::array<InfoMap, 20> player_process = {{
     {"videoqueuedatalevel", PLAYER_PROCESS_VIDEO_QUEUE_DATA_LEVEL},
     {"videoscantype",       PLAYER_PROCESS_VIDEOSCANTYPE},
     {"subtitledecoder",     PLAYER_PROCESS_SUBTITLEDECODER},
+    {"dolbyvisionoutput",   PLAYER_PROCESS_DOLBYVISION_OUTPUT},
+    {"dolbyvisionprofile",  PLAYER_PROCESS_DOLBYVISION_PROFILE},
+    {"dolbyvisioncontentmapping", PLAYER_PROCESS_DOLBYVISION_CONTENT_MAPPING},
+    {"dolbyvisionmaster",   PLAYER_PROCESS_DOLBYVISION_MASTER},
+    {"dolbyvisionactivearea", PLAYER_PROCESS_DOLBYVISION_ACTIVE_AREA},
+    {"dolbyvisionmode",     PLAYER_PROCESS_DOLBYVISION_MODE},
+    {"dolbyvisiondisplaypeak", PLAYER_PROCESS_DOLBYVISION_DISPLAY_PEAK},
+    {"dolbyvisionchanges",  PLAYER_PROCESS_DOLBYVISION_CHANGES},
 }};
 // clang-format on
 
