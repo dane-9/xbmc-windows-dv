@@ -480,7 +480,10 @@ bool CDVDVideoCodecFFmpeg::Open(CDVDStreamInfo &hints, CDVDCodecOptions &options
   m_processInfo.SetVideoPixelFormat(pixFmtName ? pixFmtName : "");
 
   m_doviEnhancement.reset();
+  // The enhancement layer always needs a hardware decoder, so it's left out when software
+  // decoding is forced (thumbnail extraction does that).
   if (hints.hdrType == StreamHdrType::HDR_TYPE_DOLBYVISION &&
+      !(hints.codecOptions & CODEC_FORCE_SOFTWARE) &&
       m_processInfo.WantsDolbyVisionEnhancementLayer())
     m_doviEnhancement = CDoviEnhancementDecoder::Create(hints);
 
